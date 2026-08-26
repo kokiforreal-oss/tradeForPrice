@@ -1,10 +1,8 @@
 #!/usr/bin/env bash
-# 本机直推服务器（不走 GitHub）。若你已改为「提交到 GitHub 再升级」，
-# 请不要用本脚本，改用：本机 ./prepare-release.sh → git push → 服务器 ./upgrade-from-github.sh
-# 用法：
-#   ./upgrade.sh
-#   ./upgrade.sh root@47.118.17.143:/opt/trade
-# 也可先 export TRADE_REMOTE=root@你的IP:/opt/trade
+# 本机直推服务器并重建 Docker 容器（不走 GitHub，不覆盖远程 .env / data/）。
+# 第一次请先在服务器执行：cd /opt/trade && ./docker-setup.sh
+# 用法：./upgrade.sh
+#       ./upgrade.sh root@47.118.17.143:/opt/trade
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")" && pwd)"
@@ -24,8 +22,14 @@ echo "本次版本：$VER"
 
 SKIP_BUMP=1 "$ROOT/update-remote.sh" "$DEST"
 
-echo "服务器部署中（先备份库再重启）…"
-ssh "$HOST" "cd '$REMOTE_PATH' && chmod +x deploy.sh backup.sh && ./deploy.sh"
+echo "服务器 Docker 发版中（先备份库再重建容器）…"
+ssh "$HOST" "cd '$REMOTE_PATH' && chmod +x docker-setup.sh deploy-docker.sh docker-lib.sh &&
+  if ! command -v docker >/dev/null 2>&1 || ! docker info >/dev/null 2>&1; then
+    echo 'Docker 未就绪，执行一次性切换 docker-setup.sh …'
+    ./docker-setup.sh
+  else
+    ./deploy-docker.sh
+  fi"
 
 echo
 echo "升级完成。版本 $VER"

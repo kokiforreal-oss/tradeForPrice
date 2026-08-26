@@ -110,23 +110,25 @@ sudo systemctl enable --now mysql
 
 **不要用整目录覆盖反复部署**，以免冲掉远程 `.env`、`data/` 和上传文件。
 
-以 GitHub 为发布源时（推荐）：本机先升版本再提交推送，再到**服务器**拉代码并重启：
+生产推荐：应用用 Docker（host 网络占 `127.0.0.1:8000`），**MySQL 与 Nginx 仍在宿主机**。国内 ECS 往往访问不了 GitHub，升级走本机 rsync，不要在服务器 `git pull`。
+
+第一次在服务器（代码已在 `/opt/trade` 且已有 `.env`）：
 
 ```bash
-# 本机
-./prepare-release.sh
-git add VERSION app/static/index.html
-# 再把你改过的功能文件一起 add，然后 commit、push
-
-# 服务器
 cd /opt/trade
-chmod +x upgrade-from-github.sh deploy.sh
-./upgrade-from-github.sh
+chmod +x docker-setup.sh deploy-docker.sh
+./docker-setup.sh
 ```
 
-第一次若 `/opt/trade` 还不是 git 仓库，按 `upgrade-from-github.sh` 里的提示 `git init` / `git remote` / `git checkout`，不会覆盖 `.env` 和 `data/`。
+之后每次本机改完：
 
-也可以本机不经 GitHub、直接 rsync：`./upgrade.sh root@YOUR_HOST:/opt/trade`。两种不要混用。
+```bash
+./upgrade.sh root@YOUR_HOST:/opt/trade
+```
+
+会升构建号、同步代码（跳过 `.env` / `data/` / `.venv`）、备份 MySQL、`docker compose up -d --build`。Nginx 不用改。不要 `docker compose down -v`。
+
+本机开发仍用 `./start.sh`，不要用这份 compose（Mac 上 host 网络与 Linux 不同）。
 
 ### 3. 虚拟环境与配置
 
@@ -139,7 +141,7 @@ cp .env.example .env
 # 编辑 SECRET_KEY、DATABASE_URL，勿将真实值提交到 git
 ```
 
-### 4. systemd
+### 4. systemd（旧方式，已改 Docker 后不要再 enable）
 
 ```bash
 sudo tee /etc/systemd/system/trade.service >/dev/null <<'EOF'
