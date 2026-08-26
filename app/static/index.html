@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1280" />
+    <title>拉法国际外贸系统</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+SC:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/static/css/app.css?v=20260826bf" />
+  </head>
+  <body>
+    <div id="login-page" class="login-wrap">
+      <div class="login-stage">
+        <div class="login-aside">
+          <div class="login-aside-glow" aria-hidden="true"></div>
+          <div class="login-mark">拉法国际外贸系统</div>
+          <h1>询价到履约，<br />一条链路走完。</h1>
+          <p>内部协作后台 · 产品 · 询价 · 订单</p>
+        </div>
+        <form id="login-form" class="login-card">
+          <h2>欢迎回来</h2>
+          <p class="muted">使用公司账号登录</p>
+          <label>用户名<input name="username" autocomplete="username" required /></label>
+          <label>密码<input name="password" type="password" autocomplete="current-password" required /></label>
+          <button type="submit">进入系统</button>
+          <p id="login-error" class="error"></p>
+        </form>
+      </div>
+    </div>
+
+    <div id="app-shell" class="hidden">
+      <aside>
+        <div class="brand">
+          <span class="brand-mark">拉</span>
+          <span>拉法国际外贸系统</span>
+        </div>
+        <div class="nav-label">工作区</div>
+        <nav id="nav"></nav>
+        <nav id="nav-foot" class="nav-foot"></nav>
+      </aside>
+      <div class="workspace">
+        <header class="page-head">
+          <h2 id="page-title">工作台</h2>
+          <div class="page-head-right">
+            <div id="who"></div>
+            <button type="button" id="logout" class="ghost">退出</button>
+          </div>
+        </header>
+        <section id="view"></section>
+      </div>
+    </div>
+    <script src="/static/js/e2e.js?v=20260826bf"></script>
+    <script src="/static/js/app.js?v=20260826bf"></script>
+  </body>
+</html>
