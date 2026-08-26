@@ -30,4 +30,3 @@ ssh "$HOST" "cd '$REMOTE_PATH' && chmod +x deploy.sh backup.sh && ./deploy.sh"
 echo
 echo "升级完成。版本 $VER"
 echo "请用浏览器强制刷新后登录确认：https://${HOST#*@}/"
-echo "侧栏和登录页会显示构建号，应与上面一致。"

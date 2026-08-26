@@ -17,8 +17,6 @@ def main() -> str:
     html = INDEX.read_text(encoding="utf-8")
     html = re.sub(r"\?v=[^\"'\s>]+", f"?v={stamp}", html)
     html = re.sub(r'(data-build=")[^"]*"', rf'\g<1>{stamp}"', html)
-    html = re.sub(r'(id="app-build">)[^<]*', rf"\g<1>{stamp}", html)
-    html = re.sub(r'(id="login-build">)[^<]*', rf"\g<1>{stamp}", html)
     INDEX.write_text(html, encoding="utf-8")
     VERSION_FILE.write_text(stamp + "\n", encoding="utf-8")
     print(stamp)
