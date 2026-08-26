@@ -2,7 +2,10 @@
 
 ```
 trade/
-  start.sh / deploy.sh / update-remote.sh
+  start.sh              # 本机开发
+  upgrade.sh            # 本机同步代码并在服务器重建容器
+  update-remote.sh / bump-version.py / backup.sh
+  docker-setup.sh / deploy-docker.sh / docker-compose.yml / Dockerfile
   requirements.txt / .env.example
   data/                 # 密钥、上传、备份（勿提交）
   app/
@@ -98,11 +101,11 @@ mysql+pymysql://用户:密码@127.0.0.1:3306/trade?charset=utf8mb4
 
 ```bash
 sudo apt update
-sudo apt install -y python3 python3-venv python3-pip nginx mysql-server
-sudo systemctl enable --now mysql
+sudo apt install -y docker.io docker-compose-plugin nginx mysql-server
+sudo systemctl enable --now mysql docker
 ```
 
-按上一节建库授权。建议 Python ≥ 3.9。
+按上一节建库授权。应用在容器里运行，服务器不必再装项目 `.venv`。
 
 ### 2. 上传代码
 
@@ -130,68 +133,24 @@ chmod +x docker-setup.sh deploy-docker.sh
 
 本机开发仍用 `./start.sh`，不要用这份 compose（Mac 上 host 网络与 Linux 不同）。
 
-### 3. 虚拟环境与配置
+### 3. 配置
+
+服务器上保留已有 `.env`，不要用示例文件覆盖。本机开发：
 
 ```bash
-cd /opt/trade
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
 cp .env.example .env
-# 编辑 SECRET_KEY、DATABASE_URL，勿将真实值提交到 git
-```
-
-### 4. systemd（旧方式，已改 Docker 后不要再 enable）
-
-```bash
-sudo tee /etc/systemd/system/trade.service >/dev/null <<'EOF'
-[Unit]
-Description=Trade inquiry system
-After=network.target mysql.service
-
-[Service]
-WorkingDirectory=/opt/trade
-Environment=PATH=/opt/trade/.venv/bin
-ExecStart=/opt/trade/.venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000
-Restart=always
-User=root
-
-[Install]
-WantedBy=multi-user.target
-EOF
-
-sudo systemctl daemon-reload
-sudo systemctl enable --now trade
-sudo systemctl status trade
+# 修改 DATABASE_URL、SECRET_KEY
 ```
 
 空库才会写入演示账号。务必保留 `data/` 下的密钥文件。
 
-### 5. Nginx
+### 4. Nginx
 
-```bash
-sudo tee /etc/nginx/sites-available/trade >/dev/null <<'EOF'
-server {
-    listen 80;
-    server_name _;
-    client_max_body_size 20m;
+生产入口仍是宿主机 Nginx 反代 `http://127.0.0.1:8000`。证书与站点配置按现网保留即可。
 
-    location / {
-        proxy_pass http://127.0.0.1:8000;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-    }
-}
-EOF
-sudo ln -sf /etc/nginx/sites-available/trade /etc/nginx/sites-enabled/trade
-sudo rm -f /etc/nginx/sites-enabled/default
-sudo nginx -t && sudo systemctl reload nginx
-```
+浏览器访问 `https://YOUR_HOST`。
 
-浏览器访问 `http://YOUR_HOST`。
-
-### 6. 备份
+### 5. 备份
 
 服务器项目目录执行（需已安装 `mysqldump`）：
 
@@ -208,17 +167,18 @@ echo '15 3 * * * /opt/trade/backup.sh >> /var/log/trade-backup.log 2>&1' | cront
 
 请再拷一份到本机或 OSS。误删 `data/e2e.key` 只能从备份恢复到原路径。
 
-### 7. 发版
+### 6. 发版
 
-改代码后重启服务即可，不会清库：
+本机执行 `./upgrade.sh root@YOUR_HOST:/opt/trade`。服务器上看日志：
 
 ```bash
-sudo systemctl restart trade
-sudo journalctl -u trade -f
+cd /opt/trade
+docker compose ps
+docker compose logs -f
 curl http://127.0.0.1:8000/api/health
 ```
 
-不要重建库、不要删除 `data/`。误删密钥只能从备份恢复到原路径。
+不要重建库、不要删除 `data/`，不要 `docker compose down -v`。误删密钥只能从备份恢复到原路径。
 
 ## 仓库注意
 

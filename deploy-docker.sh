@@ -69,7 +69,21 @@ PY
 
 echo "正在构建并启动容器…"
 dc up -d --build
-dc ps
-echo "健康检查："
-sleep 2
-python3 -c "import urllib.request; print(urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=5).read().decode())" || echo "健康检查暂未通过，请看：docker compose logs -f"
+dc ps -a
+echo "等待服务监听 8000…"
+ok=0
+for i in $(seq 1 20); do
+  if curl -fsS --connect-timeout 1 http://127.0.0.1:8000/api/health >/tmp/trade-health.json 2>/dev/null; then
+    echo "健康检查：$(cat /tmp/trade-health.json)"
+    ok=1
+    break
+  fi
+  sleep 1
+done
+if [[ "$ok" != 1 ]]; then
+  echo "健康检查未通过（127.0.0.1:8000 无响应）。容器日志如下："
+  dc logs --tail=80
+  echo
+  echo "请把上面日志发回来。也可再执行：cd /opt/trade && docker compose ps -a && docker compose logs --tail=80"
+  exit 1
+fi

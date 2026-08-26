@@ -20,15 +20,8 @@ fi
 mkdir -p "$DEST"
 chmod 700 "$DEST"
 
-if [[ ! -d .venv ]]; then
-  echo "缺少 .venv，无法读取 DATABASE_URL。"
-  exit 1
-fi
-# shellcheck disable=SC1091
-source .venv/bin/activate
-
 DUMP="$WORKDIR/trade.sql"
-python - "$DUMP" <<'PY'
+python3 - "$DUMP" <<'PY'
 import os
 import subprocess
 import sys
@@ -36,15 +29,17 @@ from pathlib import Path
 from urllib.parse import unquote, urlparse
 
 out = Path(sys.argv[1])
-sys.path.insert(0, str(Path.cwd()))
-from app.config import settings
-from app.db.database import _database_url
-
-url = _database_url(settings.database_url)
-if not url.startswith("mysql"):
+url = ""
+for line in Path(".env").read_text(encoding="utf-8").splitlines():
+    s = line.strip()
+    if s.startswith("DATABASE_URL="):
+        url = s.split("=", 1)[1].strip().strip('"').strip("'")
+        break
+if not url or "mysql" not in url:
     print("当前不是 MySQL，跳过 mysqldump。")
     raise SystemExit(0)
-
+if url.startswith("mysql+pymysql://"):
+    url = "mysql://" + url[len("mysql+pymysql://") :]
 parsed = urlparse(url)
 user = unquote(parsed.username or "")
 password = unquote(parsed.password or "")
