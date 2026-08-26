@@ -62,6 +62,18 @@ body {
   letter-spacing: 0.01em;
   padding: 4px 10px 24px;
 }
+.brand > span:last-child {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  line-height: 1.2;
+}
+.brand-build {
+  font-size: 11px;
+  font-weight: 500;
+  color: #94a3b8;
+  letter-spacing: 0;
+}
 .brand-mark {
   width: 32px;
   height: 32px;

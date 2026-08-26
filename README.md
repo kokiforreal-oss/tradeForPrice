@@ -108,15 +108,25 @@ sudo systemctl enable --now mysql
 
 将项目放到服务器目录（例如 `/opt/trade`），其中应有 `app/`、`requirements.txt`。
 
-**不要用整目录覆盖反复部署**，以免冲掉远程 `.env`、`data/` 和上传文件。可用仓库内脚本（若存在）：
+**不要用整目录覆盖反复部署**，以免冲掉远程 `.env`、`data/` 和上传文件。
+
+以 GitHub 为发布源时（推荐）：本机先升版本再提交推送，再到**服务器**拉代码并重启：
 
 ```bash
-chmod +x update-remote.sh deploy.sh
-./update-remote.sh 用户@YOUR_HOST:/opt/trade
-ssh 用户@YOUR_HOST 'cd /opt/trade && chmod +x deploy.sh && ./deploy.sh'
+# 本机
+./prepare-release.sh
+git add VERSION app/static/index.html
+# 再把你改过的功能文件一起 add，然后 commit、push
+
+# 服务器
+cd /opt/trade
+chmod +x upgrade-from-github.sh deploy.sh
+./upgrade-from-github.sh
 ```
 
-`update-remote.sh` 应跳过远程 `.env`、`data/`、`.venv`。`deploy.sh` 可在重启前把库备份到 `data/backups/`。
+第一次若 `/opt/trade` 还不是 git 仓库，按 `upgrade-from-github.sh` 里的提示 `git init` / `git remote` / `git checkout`，不会覆盖 `.env` 和 `data/`。
+
+也可以本机不经 GitHub、直接 rsync：`./upgrade.sh root@YOUR_HOST:/opt/trade`。两种不要混用。
 
 ### 3. 虚拟环境与配置
 
@@ -181,11 +191,20 @@ sudo nginx -t && sudo systemctl reload nginx
 
 ### 6. 备份
 
+服务器项目目录执行（需已安装 `mysqldump`）：
+
 ```bash
-mysqldump -h 127.0.0.1 -P 3306 -u trade -p trade > /opt/trade/data/trade-$(date +%F).sql
+chmod +x backup.sh
+./backup.sh
 ```
 
-附件一般在 `data/uploads/`。从 SQLite 迁来时不会自动导入旧库文件。
+默认写到 `/opt/trade-backups/trade-日期.tar.gz`，内含数据库 dump、`.env`、`e2e.key`、上传附件。每天凌晨可加 crontab：
+
+```bash
+echo '15 3 * * * /opt/trade/backup.sh >> /var/log/trade-backup.log 2>&1' | crontab -
+```
+
+请再拷一份到本机或 OSS。误删 `data/e2e.key` 只能从备份恢复到原路径。
 
 ### 7. 发版
 
@@ -202,5 +221,5 @@ curl http://127.0.0.1:8000/api/health
 ## 仓库注意
 
 - 不要提交 `.env`、`data/e2e.key`、数据库备份、真实客户导出。  
-- 接口文档（若服务已启动）：`/api/docs`。  
+- 接口文档默认关闭；本机调试可在 `.env` 设 `ENABLE_API_DOCS=true`。  
 - 健康检查：`GET /api/health`。

@@ -7,7 +7,7 @@ from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from app.api import register_routers
-from app.config import BASE_DIR, UPLOAD_DIR
+from app.config import BASE_DIR, UPLOAD_DIR, settings
 from app.db.database import Base, SessionLocal, engine, ensure_schema, preserve_org_key
 from app.db.seed import ensure_catalog, seed
 
@@ -34,7 +34,14 @@ async def lifespan(_app: FastAPI):
     yield
 
 
-app = FastAPI(title="拉法国际外贸系统", docs_url="/api/docs", lifespan=lifespan)
+_docs = "/api/docs" if settings.enable_api_docs else None
+app = FastAPI(
+    title="拉法国际外贸系统",
+    docs_url=_docs,
+    redoc_url="/api/redoc" if settings.enable_api_docs else None,
+    openapi_url="/api/openapi.json" if settings.enable_api_docs else None,
+    lifespan=lifespan,
+)
 register_routers(app)
 
 app.mount("/uploads", StaticFiles(directory=str(UPLOAD_DIR)), name="uploads")

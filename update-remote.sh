@@ -6,6 +6,11 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 DEST="${1:?用法: ./update-remote.sh user@host:/opt/trade}"
 
+if [[ "${SKIP_BUMP:-}" != "1" ]]; then
+  echo "构建号递增中…"
+  python3 "$ROOT/bump-version.py"
+fi
+
 rsync -avz --delete \
   --exclude '.env' \
   --exclude 'data/' \
