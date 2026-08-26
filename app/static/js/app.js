@@ -349,6 +349,43 @@ function parseHash() {
   };
 }
 
+function listFilterQs() {
+  const p = parseHash().params;
+  const q = new URLSearchParams();
+  if (p.get("status")) q.set("status", p.get("status"));
+  if (p.get("from")) q.set("date_from", p.get("from"));
+  if (p.get("to")) q.set("date_to", p.get("to"));
+  const s = q.toString();
+  return s ? "?" + s : "";
+}
+
+function dateRangeFields() {
+  const p = parseHash().params;
+  return `<label class="doc-range">从<input type="date" name="from" value="${esc(p.get("from") || "")}"></label>
+    <label class="doc-range">到<input type="date" name="to" value="${esc(p.get("to") || "")}"></label>`;
+}
+
+function bindDocListFilter(baseHash) {
+  const apply = () => {
+    const q = new URLSearchParams();
+    const status = ($("#view select[name=status]") || {}).value || "";
+    const from = ($("#view input[name=from]") || {}).value || "";
+    const to = ($("#view input[name=to]") || {}).value || "";
+    if (status) q.set("status", status);
+    if (from) q.set("from", from);
+    if (to) q.set("to", to);
+    const s = q.toString();
+    location.hash = s ? `${baseHash}?${s}` : baseHash;
+  };
+  const form = $("#view .page-toolbar");
+  if (form && form.tagName === "FORM") {
+    form.onsubmit = (e) => {
+      e.preventDefault();
+      apply();
+    };
+  }
+}
+
 const CARD_HREF = {
   pending_quote: "#/inquiries?status=pending_quote",
   quoted: "#/inquiries?status=quoted",
@@ -825,21 +862,22 @@ function productForm(p, tree = []) {
 async function viewInquiries() {
   pageTitle("询价单管理");
   const status = parseHash().params.get("status") || "";
-  const rows = await api("/api/inquiries" + (status ? `?status=${encodeURIComponent(status)}` : ""));
+  const rows = await api("/api/inquiries" + listFilterQs());
   const canCreate = me.role === "sales";
   const canDelete = me.role === "admin";
   $("#view").innerHTML = `
     <div class="inq-page">
-    <div class="toolbar page-toolbar">
+    <form class="toolbar page-toolbar">
       <select name="status">
         <option value="">全部状态</option>
         ${Object.entries(INQ)
           .map(([k, v]) => `<option value="${k}" ${k === status ? "selected" : ""}>${v}</option>`)
           .join("")}
       </select>
-      <button class="ghost" type="button" id="f-inq">筛选</button>
+      ${dateRangeFields()}
+      <button class="ghost" type="submit">筛选</button>
       ${canCreate ? `<a class="btn" href="#/inquiries/new">新建询价单</a>` : ""}
-    </div>
+    </form>
     <div class="table-wrap"><table>
       <thead><tr><th>单号</th><th>客户</th><th>币种</th><th>状态</th><th>销售</th><th>创建时间</th><th>操作</th></tr></thead>
       <tbody>
@@ -864,10 +902,7 @@ async function viewInquiries() {
       </tbody>
     </table></div>
     </div>`;
-  $("#f-inq").onclick = () => {
-    const s = $("#view select[name=status]").value;
-    location.hash = s ? `#/inquiries?status=${s}` : "#/inquiries";
-  };
+  bindDocListFilter("#/inquiries");
   $$("[data-del-inq]").forEach((b) => {
     b.onclick = async () => {
       if (!confirm("确认删除该询价单？关联订单会一并删除。")) return;
@@ -1329,18 +1364,19 @@ async function viewInquiryDetail(id) {
 async function viewOrders() {
   pageTitle("销售订单");
   const status = parseHash().params.get("status") || "";
-  const rows = await api("/api/orders" + (status ? `?status=${encodeURIComponent(status)}` : ""));
+  const rows = await api("/api/orders" + listFilterQs());
   $("#view").innerHTML = `
-    <div class="toolbar page-toolbar">
+    <form class="toolbar page-toolbar">
       <select name="status">
         <option value="">全部状态</option>
         ${Object.entries(ORD)
           .map(([k, v]) => `<option value="${k}" ${k === status ? "selected" : ""}>${v}</option>`)
           .join("")}
       </select>
-      <button class="ghost" type="button" id="f-ord">筛选</button>
+      ${dateRangeFields()}
+      <button class="ghost" type="submit">筛选</button>
       ${me.role === "sales" ? `<a class="btn" href="#/orders/new">新建销售订单</a>` : ""}
-    </div>
+    </form>
     <div class="table-wrap"><table>
       <thead><tr><th>单据日期</th><th>销售单号</th><th>客户</th><th>金额</th><th>当前状态</th><th>业务员</th><th>操作</th></tr></thead>
       <tbody>
@@ -1367,10 +1403,7 @@ async function viewOrders() {
         }
       </tbody>
     </table></div>`;
-  $("#f-ord").onclick = () => {
-    const s = $("#view select[name=status]").value;
-    location.hash = s ? `#/orders?status=${s}` : "#/orders";
-  };
+  bindDocListFilter("#/orders");
   $$("[data-del-ord]").forEach((b) => {
     b.onclick = async () => {
       if (!confirm("确认删除该销售订单？")) return;
@@ -2014,16 +2047,17 @@ async function viewOrderDetail(id) {
 async function viewPurchaseOrders() {
   pageTitle("采购订单");
   const status = parseHash().params.get("status") || "";
-  const rows = await api("/api/purchase-orders" + (status ? `?status=${encodeURIComponent(status)}` : ""));
+  const rows = await api("/api/purchase-orders" + listFilterQs());
   $("#view").innerHTML = `
-    <div class="toolbar page-toolbar">
+    <form class="toolbar page-toolbar">
       <select name="status">
         <option value="">全部状态</option>
         ${Object.entries(PO).map(([k, v]) => `<option value="${k}" ${k === status ? "selected" : ""}>${v}</option>`).join("")}
       </select>
-      <button class="ghost" type="button" id="f-po">筛选</button>
+      ${dateRangeFields()}
+      <button class="ghost" type="submit">筛选</button>
       ${me.role === "purchase" ? `<a class="btn" href="#/purchase-orders/new">新建采购单</a>` : ""}
-    </div>
+    </form>
     <div class="table-wrap"><table>
       <thead><tr><th>单据日期</th><th>采购单号</th><th>供应商</th><th>业务员</th><th>销售订单</th><th>金额</th><th>状态</th><th>操作</th></tr></thead>
       <tbody>
@@ -2049,10 +2083,7 @@ async function viewPurchaseOrders() {
         }
       </tbody>
     </table></div>`;
-  $("#f-po").onclick = () => {
-    const s = $("#view select[name=status]").value;
-    location.hash = s ? `#/purchase-orders?status=${s}` : "#/purchase-orders";
-  };
+  bindDocListFilter("#/purchase-orders");
   $$("[data-del-po]").forEach((b) => {
     b.onclick = async () => {
       if (!confirm("确认删除该采购单？关联的仅指向本单的付款单会一并删除。")) return;

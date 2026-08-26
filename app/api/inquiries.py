@@ -14,7 +14,7 @@ from app.core.auth import get_current_user, require_roles
 from app.db.database import get_db
 from app.db.models import Inquiry, InquiryLine, Order, OrderLog, Product, Quote, QuoteLine, User, utcnow
 from app.core.e2e import MoneyIn, money
-from app.core.utils import fmt_dt, next_no, to_float
+from app.core.utils import apply_created_at_range, fmt_dt, next_no, to_float
 
 router = APIRouter(prefix="/api/inquiries", tags=["inquiries"])
 
@@ -278,6 +278,8 @@ def list_inquiries(
     db: Annotated[Session, Depends(get_db)],
     user: Annotated[User, Depends(get_current_user)],
     status: str = "",
+    date_from: str = "",
+    date_to: str = "",
 ):
     if user.role not in ("admin", "sales", "purchase", "finance"):
         raise HTTPException(403, "没有权限")
@@ -291,6 +293,7 @@ def list_inquiries(
         q = q.filter(Inquiry.status.in_(DONE_STATUSES))
     elif status:
         q = q.filter(Inquiry.status == status)
+    q = apply_created_at_range(q, Inquiry.created_at, date_from, date_to)
     rows = q.order_by(Inquiry.id.desc()).all()
     return [
         {

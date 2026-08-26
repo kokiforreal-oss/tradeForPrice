@@ -14,7 +14,7 @@ from app.db.database import get_db
 from app.db.models import Inquiry, InquiryLine, Order, OrderLine, OrderLog, Product, Quote, User
 from app.api.purchase_orders import ensure_po_from_sales_order
 from app.core.e2e import MoneyIn, money, to_api_money
-from app.core.utils import fmt_dt, next_no, to_float
+from app.core.utils import apply_doc_date_range, fmt_dt, next_no, to_float
 
 router = APIRouter(prefix="/api/orders", tags=["orders"])
 
@@ -249,6 +249,8 @@ def list_orders(
     db: Annotated[Session, Depends(get_db)],
     user: Annotated[User, Depends(get_current_user)],
     status: str = "",
+    date_from: str = "",
+    date_to: str = "",
 ):
     q = db.query(Order).options(
         joinedload(Order.inquiry).joinedload(Inquiry.creator),
@@ -260,6 +262,7 @@ def list_orders(
         q = q.filter(Order.status.in_(VISIBLE_STATUSES + ("draft", "pending_audit")))
     if status:
         q = q.filter(Order.status == status)
+    q = apply_doc_date_range(q, Order, date_from, date_to)
     rows = q.order_by(Order.id.desc()).all()
     return [
         {

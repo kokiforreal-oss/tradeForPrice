@@ -13,7 +13,7 @@ from app.core.auth import ROLE_LABEL, get_current_user, require_roles
 from app.db.database import get_db
 from app.db.models import FinanceAllocLine, FinanceInvoice, FinancePayment, FinanceVoucher, FinanceWriteoff, Inquiry, InquiryLine, Order, OrderLog, Product, PurchaseOrder, PurchaseOrderLine, PurchaseOrderLog, Quote, User
 from app.core.e2e import MoneyIn, money, to_api_money
-from app.core.utils import fmt_dt, next_no, to_float
+from app.core.utils import apply_doc_date_range, fmt_dt, next_no, to_float
 
 router = APIRouter(prefix="/api/purchase-orders", tags=["purchase-orders"])
 
@@ -416,6 +416,8 @@ def list_pos(
     user: Annotated[User, Depends(get_current_user)],
     status: str = "",
     sales_order_id: Optional[int] = None,
+    date_from: str = "",
+    date_to: str = "",
 ):
     if user.role not in ("admin", "purchase", "finance", "sales"):
         raise HTTPException(403, "没有权限")
@@ -431,6 +433,7 @@ def list_pos(
         q = q.filter(PurchaseOrder.status == status)
     if sales_order_id:
         q = q.filter(PurchaseOrder.sales_order_id == sales_order_id)
+    q = apply_doc_date_range(q, PurchaseOrder, date_from, date_to)
     rows = q.order_by(PurchaseOrder.id.desc()).all()
     return [
         {
