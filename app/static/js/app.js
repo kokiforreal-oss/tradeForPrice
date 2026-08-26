@@ -252,7 +252,7 @@ function navItems() {
     all.push({ href: "#/finance", label: "资金管理" });
   }
   if (me.role === "admin") all.push({ href: "#/users", label: "用户管理" });
-  all.push({ href: "#/assistant", label: "外贸助手", foot: true });
+  all.push({ href: "#/assistant", label: "外贸助手" });
   return all;
 }
 
@@ -270,7 +270,9 @@ function renderNav() {
   const path = parseHash().path || "#/home";
   const items = navItems();
   $("#nav").innerHTML = renderNavLinks(items.filter((i) => !i.foot), path);
-  $("#nav-foot").innerHTML = renderNavLinks(items.filter((i) => i.foot), path);
+  const foot = items.filter((i) => i.foot);
+  $("#nav-foot").innerHTML = renderNavLinks(foot, path);
+  $("#nav-foot").classList.toggle("hidden", !foot.length);
   $("#who").innerHTML = `<span class="who-avatar">${esc((me.name || "?").slice(0, 1))}</span><span class="who-text">${esc(me.name)} · ${esc(me.role_label)}</span>`;
 }
 
