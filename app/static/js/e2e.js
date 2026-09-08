@@ -192,5 +192,5 @@ async function e2eProtectPath(path) {
 }
 
 function e2eSkipPath(path) {
-  return path.startsWith("/api/auth/login") || path.startsWith("/api/crypto/") || path.startsWith("/api/assistant");
+  return path.startsWith("/api/auth/login") || path.startsWith("/api/crypto/");
 }

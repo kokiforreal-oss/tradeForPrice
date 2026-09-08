@@ -57,7 +57,7 @@ def require_finance(user: Annotated[User, Depends(get_current_user)]) -> User:
 
 def require_finance_view(user: Annotated[User, Depends(get_current_user)]) -> User:
     if user.role not in FINANCE_ROLES:
-        raise HTTPException(403, "仅财务或管理员可查看资金管理")
+        raise HTTPException(403, "仅财务或管理员可查看财务管理")
     return user
 
 
@@ -638,6 +638,7 @@ def list_vouchers(
                 "status": v.status or "posted",
                 "needs_fill": (v.status or "") == "pending",
                 "operator": v.operator.name if v.operator else "",
+                "created_at": fmt_dt(v.created_at),
             }
         )
     return out

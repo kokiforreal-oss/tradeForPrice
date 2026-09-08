@@ -29,6 +29,6 @@ if [[ ! -f .env ]]; then
   exit 1
 fi
 
-echo "启动服务：http://127.0.0.1:8000  （Ctrl+C 停止）"
+echo "启动服务：http://127.0.0.1:8090  （Ctrl+C 停止）"
 echo "数据库只做增量建表/补列，不会清空已有数据；请勿覆盖 .env 与 data/（含 e2e.key）。"
-exec uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+exec uvicorn app.main:app --host 0.0.0.0 --port 8090 --reload

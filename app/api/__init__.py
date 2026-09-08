@@ -2,7 +2,7 @@
 
 from fastapi import FastAPI
 
-from app.api import assistant, auth, crypto, dashboard, finance, inquiries, orders, products, purchase_orders
+from app.api import auth, crypto, dashboard, finance, inquiries, orders, products, purchase_orders
 
 _MODULES = (
     auth,
@@ -13,7 +13,6 @@ _MODULES = (
     purchase_orders,
     finance,
     dashboard,
-    assistant,
 )
 
 

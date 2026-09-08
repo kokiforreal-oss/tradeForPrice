@@ -30,6 +30,7 @@ def _todo(
         "tag": tag,
         "subtitle": subtitle,
         "time": time or "",
+        "level": "high" if kind in ("audit", "reject") else "normal",
     }
 
 
@@ -211,33 +212,48 @@ def dashboard(
     db: Annotated[Session, Depends(get_db)],
     user: Annotated[User, Depends(get_current_user)],
 ):
-    inq = filter_inquiries(db.query(Inquiry), user)
-    orders = filter_orders(db.query(Order), user)
     cards = []
-    if user.role in ("admin", "sales", "purchase"):
-        q = inq
-        cards.append({"key": "pending_quote", "label": "待报价询价", "count": q.filter(Inquiry.status == "pending_quote").count()})
-        cards.append({"key": "quoted", "label": "已报价询价", "count": q.filter(Inquiry.status == "quoted").count()})
-    if user.role in ("admin", "sales"):
-        cards.append({"key": "selling", "label": "销售中", "count": inq.filter(Inquiry.status == "selling").count()})
-        cards.append({"key": "done", "label": "已完成", "count": inq.filter(Inquiry.status.in_(("won", "closed"))).count()})
     if user.role == "admin":
-        cards.append({"key": "pending_audit", "label": "待审销售单", "count": db.query(Order).filter(Order.status == "pending_audit").count()})
-    if user.role in ("admin", "sales", "finance"):
-        cards.append({"key": "contract", "label": "待填合同", "count": orders.filter(Order.status == "contract").count()})
-        cards.append({"key": "fulfilling", "label": "履约中", "count": orders.filter(Order.status == "fulfilling").count()})
-    if user.role in ("admin", "finance"):
-        pending_pay = (
-            db.query(FinanceVoucher)
-            .filter(FinanceVoucher.direction == "payment", FinanceVoucher.status == "pending")
-            .count()
+        cards.append(
+            {
+                "key": "pending_audit",
+                "label": "待审销售单",
+                "count": db.query(Order).filter(Order.status == "pending_audit").count(),
+            }
         )
-        cards.append({"key": "pay_fill", "label": "待填付款单", "count": pending_pay})
-    if user.role in ("admin", "purchase"):
         pos = filter_purchase_orders(db.query(PurchaseOrder), user)
-        cards.append({"key": "po_fill", "label": "待填采购单", "count": pos.filter(PurchaseOrder.status == "pending_fill").count()})
-        cards.append({"key": "po_pending", "label": "待审采购单", "count": pos.filter(PurchaseOrder.status == "pending_audit").count()})
-        cards.append({"key": "po_progress", "label": "采购进行中", "count": pos.filter(PurchaseOrder.status == "in_progress").count()})
+        cards.append(
+            {
+                "key": "po_pending",
+                "label": "待审采购单",
+                "count": pos.filter(PurchaseOrder.status == "pending_audit").count(),
+            }
+        )
+    else:
+        inq = filter_inquiries(db.query(Inquiry), user)
+        orders = filter_orders(db.query(Order), user)
+        if user.role in ("sales", "purchase"):
+            q = inq
+            cards.append({"key": "pending_quote", "label": "待报价询价", "count": q.filter(Inquiry.status == "pending_quote").count()})
+            cards.append({"key": "quoted", "label": "已报价询价", "count": q.filter(Inquiry.status == "quoted").count()})
+        if user.role == "sales":
+            cards.append({"key": "selling", "label": "销售中", "count": inq.filter(Inquiry.status == "selling").count()})
+            cards.append({"key": "done", "label": "已完成", "count": inq.filter(Inquiry.status.in_(("won", "closed"))).count()})
+        if user.role in ("sales", "finance"):
+            cards.append({"key": "contract", "label": "待填合同", "count": orders.filter(Order.status == "contract").count()})
+            cards.append({"key": "fulfilling", "label": "履约中", "count": orders.filter(Order.status == "fulfilling").count()})
+        if user.role == "finance":
+            pending_pay = (
+                db.query(FinanceVoucher)
+                .filter(FinanceVoucher.direction == "payment", FinanceVoucher.status == "pending")
+                .count()
+            )
+            cards.append({"key": "pay_fill", "label": "待填付款单", "count": pending_pay})
+        if user.role == "purchase":
+            pos = filter_purchase_orders(db.query(PurchaseOrder), user)
+            cards.append({"key": "po_fill", "label": "待填采购单", "count": pos.filter(PurchaseOrder.status == "pending_fill").count()})
+            cards.append({"key": "po_pending", "label": "待审采购单", "count": pos.filter(PurchaseOrder.status == "pending_audit").count()})
+            cards.append({"key": "po_progress", "label": "采购进行中", "count": pos.filter(PurchaseOrder.status == "in_progress").count()})
     return {
         "name": user.name,
         "role": user.role,

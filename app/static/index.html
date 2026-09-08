@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="zh-CN" data-build="20260826174202">
+<html lang="zh-CN" data-build="20260908142457">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=1280" />
@@ -10,7 +10,7 @@
       href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+SC:wght@400;500;600;700&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="/static/css/app.css?v=20260826174202" />
+    <link rel="stylesheet" href="/static/css/app.css?v=20260908142457" />
   </head>
   <body>
     <div id="login-page" class="login-wrap">
@@ -20,8 +20,13 @@
           <div class="login-mark">拉法国际外贸系统</div>
           <h1>询价到履约，<br />一条链路走完。</h1>
           <p>内部协作后台 · 产品 · 询价 · 订单</p>
+          <ul class="login-points">
+            <li>询价报价与销售履约同屏推进</li>
+            <li>采购、财务按角色分线协作</li>
+            <li>工作台待办直达待处理单据</li>
+          </ul>
         </div>
-        <form id="login-form" class="login-card">
+        <form id="login-form" class="login-card" method="post" action="#">
           <h2>欢迎回来</h2>
           <p class="muted">使用公司账号登录</p>
           <label>用户名<input name="username" autocomplete="username" required /></label>
@@ -33,18 +38,23 @@
     </div>
 
     <div id="app-shell" class="hidden">
-      <aside>
+      <aside class="sidebar">
         <div class="brand">
           <span class="brand-mark">拉</span>
-          <span>拉法国际外贸系统</span>
+          <span>
+            <strong>拉法国际</strong>
+            <em>外贸询价履约</em>
+          </span>
         </div>
-        <div class="nav-label">工作区</div>
         <nav id="nav"></nav>
         <nav id="nav-foot" class="nav-foot"></nav>
       </aside>
       <div class="workspace">
         <header class="page-head">
-          <h2 id="page-title">工作台</h2>
+          <div class="page-head-copy">
+            <h2 id="page-title">工作台</h2>
+            <p class="muted" id="page-sub"></p>
+          </div>
           <div class="page-head-right">
             <div id="who"></div>
             <button type="button" id="logout" class="ghost">退出</button>
@@ -53,7 +63,7 @@
         <section id="view"></section>
       </div>
     </div>
-    <script src="/static/js/e2e.js?v=20260826174202"></script>
-    <script src="/static/js/app.js?v=20260826174202"></script>
+    <script src="/static/js/e2e.js?v=20260908142457"></script>
+    <script src="/static/js/app.js?v=20260908142457"></script>
   </body>
 </html>

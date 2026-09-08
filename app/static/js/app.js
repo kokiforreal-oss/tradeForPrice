@@ -1,7 +1,7 @@
 const $ = (sel, el = document) => el.querySelector(sel);
 const $$ = (sel, el = document) => [...el.querySelectorAll(sel)];
 
-    const PRESS_SEL = "a.card, .card, a.btn, button:not(.tl-acc-head), nav a, table a, a.name-link, .quote-box, .cat-row, .po-acc-toggle, .icon-btn, .cat-all, .cat-rail, a.todo-row";
+    const PRESS_SEL = "a.card, .card, a.btn, button:not(.tl-acc-head), nav a, table a, a.name-link, .quote-box, .cat-row, .po-acc-toggle, .icon-btn, .cat-all, .cat-rail, a.todo-row, a.todo-card";
 let pressClearTimer = 0;
 function clearPress(immediate) {
   window.clearTimeout(pressClearTimer);
@@ -25,7 +25,7 @@ document.addEventListener(
   "click",
   (e) => {
     if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
-    const a = e.target.closest("a.card, a.btn, nav a, a.todo-row");
+    const a = e.target.closest("a.card, a.btn, nav a, a.todo-row, a.todo-card");
     if (!a) return;
     const href = a.getAttribute("href");
     if (!href || !href.startsWith("#") || href === "#") return;
@@ -63,132 +63,38 @@ const PO = {
 };
 const INCOTERMS = ["EXW", "FCA", "FOB", "CFR", "CIF", "CPT", "CIP", "DAP", "DPU", "DDP"];
 
-let assistantTimer = null;
+let me = null;
 
-function stopAssistantTimer() {
-  if (assistantTimer) {
-    clearInterval(assistantTimer);
-    assistantTimer = null;
-  }
-}
-
-function tickAssistantClocks() {
-  $$("#clock-grid .clock-card").forEach((card) => {
-    const tz = card.dataset.tz;
-    if (!tz) return;
-    const now = new Date();
-    const time = now.toLocaleTimeString("zh-CN", { timeZone: tz, hour12: false, hour: "2-digit", minute: "2-digit", second: "2-digit" });
-    const date = now.toLocaleDateString("zh-CN", { timeZone: tz, month: "2-digit", day: "2-digit" });
-    const weekday = now.toLocaleDateString("zh-CN", { timeZone: tz, weekday: "short" });
-    const t = card.querySelector(".time");
-    const d = card.querySelector(".clock-date");
-    if (t) t.textContent = time;
-    if (d) d.textContent = `${date} ${weekday}`;
-    const hourPart = new Intl.DateTimeFormat("en-GB", {
-      timeZone: tz,
-      hour: "numeric",
-      hour12: false,
-      hourCycle: "h23",
-    }).formatToParts(now).find((p) => p.type === "hour");
-    const hour = Number(hourPart?.value);
-    const wd = now.toLocaleDateString("en-US", { timeZone: tz, weekday: "short" });
-    const work = !["Sat", "Sun"].includes(wd) && hour >= 9 && hour < 18;
-    card.classList.toggle("is-work", work);
-    const st = card.querySelector(".clock-status");
-    if (st) st.textContent = work ? "工作时间" : ["Sat", "Sun"].includes(wd) ? "周末" : "非工作时间";
+function fmtWorkday(d = new Date()) {
+  return d.toLocaleDateString("zh-CN", {
+    timeZone: "Asia/Shanghai",
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+    weekday: "long",
   });
 }
 
-function updateFxConvert(quotes, fx) {
-  const usd = Number(quotes?.find((q) => q.code === "USD")?.rate) || Number(fx?.rates?.USD) || 0;
-  const eur = Number(quotes?.find((q) => q.code === "EUR")?.rate) || Number(fx?.rates?.EUR) || 0;
-  const amt = Number($("#fx-amt")?.value) || 0;
-  const code = $("#fx-ccy")?.value || "USD";
-  const rate = code === "EUR" ? eur : usd;
-  if ($("#fx-out")) $("#fx-out").textContent = amt ? `${(amt * rate).toFixed(2)} RMB` : "—";
-}
-
-function renderFxQuotes(quotes, fx) {
-  $("#fx-quotes").innerHTML = (quotes || [])
-    .map(
-      (q) => `<div class="fx-card">
-        <div class="pair">${esc(q.pair)}</div>
-        <div class="rate">${esc(q.rate)}</div>
-        <div class="muted">${esc(q.per)} ≈ ${esc(q.rate)} 人民币</div>
-      </div>`
-    )
-    .join("");
-  const hint = $("#fx-asof");
-  if (hint) hint.textContent = fx?.as_of ? `更新时间 ${fx.as_of}` : "";
-  updateFxConvert(quotes, fx);
-}
-
-async function viewAssistant() {
-  pageTitle("外贸助手");
-  let data;
-  try {
-    data = await api("/api/assistant");
-  } catch (err) {
-    $("#view").innerHTML = `<div class="panel"><p class="error">${esc(err.message || "加载失败")}</p></div>`;
-    return;
-  }
-  $("#view").innerHTML = `
-    <div class="assist-grid">
-      <div class="panel assist-panel">
-        <div class="assist-toolbar">
-          <h3>美元 / 欧元汇率</h3>
-          <button type="button" class="ghost" id="fx-refresh">刷新汇率</button>
+function renderHomeTodo(t) {
+  const high = t.level === "high";
+  return `<a class="todo-card ${high ? "high" : ""}" href="${esc(t.href)}">
+      <span class="mark" aria-hidden="true"></span>
+      <div class="todo-body">
+        <div class="todo-top">
+          <div class="todo-main">
+            <b>${esc(t.title)}</b>
+            <div class="todo-tags">
+              <span class="pill ${esc(t.kind)}">${esc(t.tag)}</span>
+              ${t.time ? `<span class="pill todo-time">${esc(t.time)}</span>` : ""}
+              ${high ? `<span class="pill warn">优先</span>` : ""}
+            </div>
+          </div>
+          <span class="todo-go">去处理</span>
         </div>
-        <p class="muted" id="fx-asof" style="margin-top:0"></p>
-        <div class="fx-cards" id="fx-quotes"></div>
-        <div class="fx-convert">
-          <label>换算<input id="fx-amt" type="number" step="0.01" min="0" value="100"></label>
-          <label>币种<select id="fx-ccy"><option value="USD">USD</option><option value="EUR">EUR</option></select></label>
-          <output id="fx-out">—</output>
-        </div>
+        ${t.subtitle ? `<div class="todo-detail">${esc(t.subtitle)}</div>` : ""}
       </div>
-      <div class="panel assist-panel">
-        <h3>世界时间</h3>
-        <p class="muted" style="margin-top:0">对照北京时间，便于联系海外客户与供应商。绿色边框为当地工作时间（工作日 9:00–18:00）。</p>
-        <div class="clock-grid" id="clock-grid">
-          ${(data.clocks || [])
-            .map(
-              (c) => `<div class="clock-card ${c.work ? "is-work" : ""}" data-tz="${esc(c.tz)}">
-                <div class="clock-head">
-                  <strong>${esc(c.city)}</strong>
-                  <span>${esc(c.region)}</span>
-                </div>
-                <div class="time">${esc(c.time)}</div>
-                <div class="clock-meta"><span class="clock-date">${esc(c.date)} ${esc(c.weekday)}</span> · ${esc(c.offset)}</div>
-                <div class="clock-meta">${esc(c.vs_beijing)} · <span class="clock-status">${esc(c.work_label)}</span></div>
-              </div>`
-            )
-            .join("")}
-        </div>
-      </div>
-    </div>`;
-  const quotes = data.quotes || [];
-  const fx = data.fx || {};
-  renderFxQuotes(quotes, fx);
-  const recalc = () => updateFxConvert(quotes, fx);
-  $("#fx-amt").oninput = recalc;
-  $("#fx-ccy").onchange = recalc;
-  $("#fx-refresh").onclick = async () => {
-    try {
-      const n = await api("/api/assistant?refresh=true");
-      quotes.splice(0, quotes.length, ...(n.quotes || []));
-      Object.assign(fx, n.fx || {});
-      renderFxQuotes(quotes, fx);
-    } catch (err) {
-      alert(err.message || "刷新失败");
-    }
-  };
-  stopAssistantTimer();
-  tickAssistantClocks();
-  assistantTimer = setInterval(tickAssistantClocks, 1000);
+    </a>`;
 }
-
-let me = null;
 let productsCache = [];
 let prodState = {
   categoryId: "",
@@ -234,34 +140,65 @@ async function api(path, opts = {}) {
   return e2eWalkDecrypt(data);
 }
 
+async function authFetch(path, opts = {}) {
+  const headers = { ...(opts.headers || {}) };
+  if (token()) headers.Authorization = "Bearer " + token();
+  const res = await fetch(path, { ...opts, headers });
+  if (res.status === 401) {
+    e2eClearKeys();
+    localStorage.removeItem("token");
+    location.hash = "#/login";
+    throw new Error("请重新登录");
+  }
+  return res;
+}
+
+async function downloadFile(path, filename) {
+  const res = await authFetch(path);
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(typeof data.detail === "string" ? data.detail : data.message || "下载失败");
+  }
+  const blob = await res.blob();
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(a.href);
+}
+
 function navItems() {
-  const all = [
-    { href: "#/home", label: "工作台" },
-    { href: "#/products", label: "产品库" },
-  ];
+  const all = [{ group: "工作" }, { href: "#/home", label: "工作台", ico: "⌂" }];
+  const biz = [];
+  biz.push({ href: "#/products", label: "产品库", ico: "▤" });
   if (["admin", "sales", "purchase", "finance"].includes(me.role)) {
-    all.push({ href: "#/inquiries", label: "询价单管理" });
-  }
-  if (["admin", "sales", "purchase", "finance"].includes(me.role)) {
-    all.push({ href: "#/orders", label: "销售订单" });
-  }
-  if (["admin", "sales", "purchase", "finance"].includes(me.role)) {
-    all.push({ href: "#/purchase-orders", label: "采购订单" });
+    biz.push({ href: "#/inquiries", label: "询价单", ico: "◎" });
+    biz.push({ href: "#/orders", label: "销售订单", ico: "▣" });
+    biz.push({ href: "#/purchase-orders", label: "采购订单", ico: "⛴" });
   }
   if (["admin", "finance"].includes(me.role)) {
-    all.push({ href: "#/finance", label: "资金管理" });
+    biz.push({ href: "#/finance", label: "财务管理", ico: "¥" });
   }
-  if (me.role === "admin") all.push({ href: "#/users", label: "用户管理" });
-  all.push({ href: "#/assistant", label: "外贸助手" });
+  if (biz.length) {
+    all.push({ group: "业务" });
+    all.push(...biz);
+  }
+  if (me.role === "admin") {
+    all.push({ group: "系统" });
+    all.push({ href: "#/users", label: "用户管理", ico: "⚙" });
+  }
   return all;
 }
 
 function renderNavLinks(items, path) {
   return items
     .map((i) => {
-      if (i.group) return `<div class="nav-label">${esc(i.group)}</div>`;
+      if (i.group && !i.href) return `<div class="nav-label">${esc(i.group)}</div>`;
       const active = path === i.href || (i.href !== "#/home" && path.startsWith(i.href));
-      return `<a href="${i.href}" class="${active ? "active" : ""} ${i.indent ? "sub" : ""}">${i.label}</a>`;
+      const ico = i.ico ? `<span class="ico">${i.ico}</span>` : "";
+      return `<a href="${i.href}" class="${active ? "active" : ""} ${i.indent ? "sub" : ""}">${ico}${esc(i.label)}</a>`;
     })
     .join("");
 }
@@ -276,8 +213,13 @@ function renderNav() {
   $("#who").innerHTML = `<span class="who-avatar">${esc((me.name || "?").slice(0, 1))}</span><span class="who-text">${esc(me.name)} · ${esc(me.role_label)}</span>`;
 }
 
-function pageTitle(t) {
+function pageTitle(t, sub) {
   $("#page-title").textContent = t;
+  const el = $("#page-sub");
+  if (el) {
+    el.textContent = sub || "";
+    el.classList.toggle("hidden", !sub);
+  }
 }
 
 function esc(s) {
@@ -285,6 +227,50 @@ function esc(s) {
     .replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;")
     .replaceAll(">", "&gt;");
+}
+
+function fmtDocTime(v) {
+  const s = String(v ?? "").trim();
+  if (!s) return "";
+  const m = s.match(/^(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2})/);
+  return m ? `${m[1]} ${m[2]}` : s;
+}
+
+function genContractNo() {
+  const parts = Object.fromEntries(
+    new Intl.DateTimeFormat("en-GB", {
+      timeZone: "Asia/Shanghai",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hour12: false,
+      hourCycle: "h23",
+    })
+      .formatToParts(new Date())
+      .map((p) => [p.type, p.value])
+  );
+  return `HT-${parts.year}${parts.month}${parts.day}-${parts.hour}${parts.minute}${parts.second}`;
+}
+
+function todayISO() {
+  const parts = Object.fromEntries(
+    new Intl.DateTimeFormat("en-CA", {
+      timeZone: "Asia/Shanghai",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    })
+      .formatToParts(new Date())
+      .map((p) => [p.type, p.value])
+  );
+  return `${parts.year}-${parts.month}-${parts.day}`;
+}
+
+function lineSpec(ln = {}) {
+  return String(ln.spec || ln.model || "").trim();
 }
 
 function pill(status, label) {
@@ -389,6 +375,7 @@ function bindDocListFilter(baseHash) {
 }
 
 const CARD_HREF = {
+  _todos: "#/home",
   pending_quote: "#/inquiries?status=pending_quote",
   quoted: "#/inquiries?status=quoted",
   selling: "#/inquiries?status=selling",
@@ -403,7 +390,7 @@ const CARD_HREF = {
 };
 
 async function viewHome() {
-  pageTitle("工作台");
+  pageTitle("工作台", me.role === "admin" ? "待审核销售订单与采购订单" : "今日待办与快捷入口");
   const d = await api("/api/dashboard");
   const todos = d.todos || [];
   const todoHint =
@@ -416,37 +403,43 @@ async function viewHome() {
           : me.role === "finance"
             ? "采购单审核通过后生成的待填写付款单会显示在这里。"
             : "当前角色没有流程待办。";
+  const tones = ["blue", "teal", "ok", "violet", "warn"];
+  const cards = [
+    { key: "_todos", label: me.role === "admin" ? "待审核" : "待处理事项", count: todos.length },
+    ...(d.cards || []),
+  ];
   $("#view").innerHTML = `
-    <p class="muted">你好，${esc(d.name)}</p>
-    <div class="cards">
-      ${d.cards
-        .map((c) => {
+    <div class="today-head">
+      <div>
+        <strong>${esc(fmtWorkday())}</strong>
+        <p class="muted" style="margin:4px 0 0">你好，${esc(d.name || me.name || "")}。${me.role === "admin" ? "请处理待审核单据。" : "按清单处理今日事项。"}</p>
+      </div>
+      <div class="today-head-meta">
+        <span class="${todos.length ? "hot" : "ok"}">${todos.length ? `${todos.length} 项待办未完成` : "待办已清"}</span>
+        <span>${esc(me.role_label || "")}</span>
+      </div>
+    </div>
+    <div class="kpi-grid">
+      ${cards
+        .map((c, i) => {
           const href = CARD_HREF[c.key] || "#/home";
-          return `<a class="card" href="${href}"><div class="n">${c.count}</div><div class="l">${esc(c.label)}</div></a>`;
+          const tone = c.count ? tones[i % tones.length] : "";
+          return `<a class="kpi ${tone}" href="${href}"><div class="n">${c.count}</div><div class="l">${esc(c.label)}</div></a>`;
         })
         .join("")}
     </div>
-    <div class="panel todo-panel">
-      <div class="todo-head">
-        <h3>待办事项</h3>
-        <span class="todo-count">${todos.length}</span>
+    <div class="panel">
+      <div class="panel-head">
+        <div>
+          <h3>待办清单</h3>
+          <p class="muted">${esc(todoHint)}</p>
+        </div>
+        <span class="pill ${todos.length ? "blue" : "ok"}">${todos.length ? `${todos.length} 项未完成` : "已完成"}</span>
       </div>
-      <p class="muted todo-hint">${todoHint}</p>
       ${
         todos.length
-          ? `<div class="todo-list">${todos
-              .map(
-                (t) => `<a class="todo-row" href="${esc(t.href)}">
-                  <span class="pill ${esc(t.kind)}">${esc(t.tag)}</span>
-                  <span class="todo-main">
-                    <strong>${esc(t.title)}</strong>
-                    <span class="muted">${esc(t.subtitle || "")}${t.time ? ` · ${esc(t.time)}` : ""}</span>
-                  </span>
-                  <span class="todo-go">去处理</span>
-                </a>`
-              )
-              .join("")}</div>`
-          : `<p class="muted todo-empty">暂无待办，当前事项都已处理。</p>`
+          ? `<div class="todo-list">${todos.map(renderHomeTodo).join("")}</div>`
+          : `<div class="empty-box"><b>没有待办</b><p class="muted">暂无待办，当前事项都已处理。</p></div>`
       }
     </div>`;
 }
@@ -551,6 +544,10 @@ async function viewProducts() {
           </label>
           <div class="filter-actions">
             <button type="button" class="ghost" id="p-search">查询</button>
+            <button type="button" class="ghost" id="p-export">导出</button>
+            <button type="button" class="ghost" id="p-tpl">下载模板</button>
+            <button type="button" class="ghost" id="p-import">导入</button>
+            <input type="file" id="p-import-file" accept=".csv,.xlsx,.xls,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" hidden>
             <button type="button" id="add-p">新增产品</button>
           </div>
         </div>
@@ -711,6 +708,54 @@ async function viewProducts() {
   if (all) {
     all.onchange = () => $$("[data-check]").forEach((c) => (c.checked = all.checked));
   }
+  const productListQs = () => {
+    const qs = new URLSearchParams();
+    if (prodState.sku) qs.set("sku", prodState.sku);
+    if (prodState.status) qs.set("status", prodState.status);
+    if (prodState.categoryId) qs.set("category_id", prodState.categoryId);
+    return qs;
+  };
+  $("#p-export").onclick = async () => {
+    try {
+      const qs = productListQs();
+      qs.set("format", "xlsx");
+      await downloadFile("/api/products/export?" + qs.toString(), "产品库.xlsx");
+    } catch (err) {
+      alert(err.message || "导出失败");
+    }
+  };
+  $("#p-tpl").onclick = async () => {
+    try {
+      await downloadFile("/api/products/import-template", "产品导入模板.xlsx");
+    } catch (err) {
+      alert(err.message || "下载失败");
+    }
+  };
+  $("#p-import").onclick = () => $("#p-import-file").click();
+  $("#p-import-file").onchange = async (e) => {
+    const file = e.target.files && e.target.files[0];
+    e.target.value = "";
+    if (!file) return;
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      const res = await authFetch("/api/products/import", { method: "POST", body: fd });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(typeof data.detail === "string" ? data.detail : "导入失败");
+      }
+      const lines = [`新增 ${data.created || 0} 条`, `更新 ${data.updated || 0} 条`, `失败 ${data.failed || 0} 条`];
+      if (data.errors && data.errors.length) {
+        lines.push(
+          data.errors.map((x) => `第${x.row}行${x.sku ? " " + x.sku : ""}：${x.message}`).join("\n")
+        );
+      }
+      alert(lines.join("\n"));
+      viewProducts();
+    } catch (err) {
+      alert(err.message || "导入失败");
+    }
+  };
   $("#add-p").onclick = () => productForm(null, tree);
   $("#cat-add")?.addEventListener("click", () => categoryForm(tree));
   $$("[data-open], [data-edit]").forEach((b) => {
@@ -881,17 +926,18 @@ async function viewInquiries() {
       ${canCreate ? `<a class="btn" href="#/inquiries/new">新建询价单</a>` : ""}
     </form>
     <div class="table-wrap"><table>
-      <thead><tr><th>单号</th><th>客户</th><th>币种</th><th>状态</th><th>销售</th><th>创建时间</th><th>操作</th></tr></thead>
+      <thead><tr><th>创建时间</th><th>单号</th><th>客户</th><th>币种</th><th>状态</th><th>销售</th><th>操作</th></tr></thead>
       <tbody>
         ${
           rows.length
             ? rows
                 .map(
                   (r) => `<tr>
+            <td>${esc(fmtDocTime(r.created_at))}</td>
             <td><a href="#/inquiries/${r.id}">${esc(r.no)}</a></td>
             <td>${esc(r.customer_name)}</td><td>${esc(r.currency)}</td>
             <td>${pill(r.status, r.status_label)}</td>
-            <td>${esc(r.creator_name)}</td><td>${esc(r.created_at)}</td>
+            <td>${esc(r.creator_name)}</td>
             <td class="row-actions">
               <a class="btn" href="#/inquiries/${r.id}">查看</a>
               ${canDelete ? `<button class="danger" data-del-inq="${r.id}">删除</button>` : ""}
@@ -1215,7 +1261,7 @@ async function viewInquiryDetail(id) {
             <span>采购 <b>${esc(q.purchaser_name)}</b></span>
             <span>交期 <b>${q.lead_days} 天</b></span>
             <span>合计 <b>${q.total} ${esc(inq.currency)}</b></span>
-            <span>${esc(q.created_at)}</span>
+            <span>${esc(fmtDocTime(q.created_at))}</span>
           </div>
         </div>
         ${rr ? `<p class="muted quote-note">本轮询价原因：${esc(rr.reason)}</p>` : ""}
@@ -1271,7 +1317,7 @@ async function viewInquiryDetail(id) {
         <div><span>客户</span><b>${esc(inq.customer_name)}</b></div>
         <div><span>币种</span><b>${esc(inq.currency)}</b></div>
         <div><span>销售</span><b>${esc(inq.creator_name)}</b></div>
-        <div><span>创建时间</span><b>${esc(inq.created_at)}</b></div>
+        <div><span>创建时间</span><b>${esc(fmtDocTime(inq.created_at))}</b></div>
         <div><span>询价轮次</span><b>第 ${inq.quote_round || 1} 轮</b></div>
         ${
           inq.order_id
@@ -1380,7 +1426,7 @@ async function viewOrders() {
       ${me.role === "sales" ? `<a class="btn" href="#/orders/new">新建销售订单</a>` : ""}
     </form>
     <div class="table-wrap"><table>
-      <thead><tr><th>单据日期</th><th>销售单号</th><th>客户</th><th>金额</th><th>当前状态</th><th>业务员</th><th>操作</th></tr></thead>
+      <thead><tr><th>创建时间</th><th>销售单号</th><th>客户</th><th>金额</th><th>当前状态</th><th>业务员</th><th>操作</th></tr></thead>
       <tbody>
         ${
           rows.length
@@ -1391,7 +1437,7 @@ async function viewOrders() {
                       ? ` <button class="danger" data-del-ord="${r.id}">删除</button>`
                       : "";
                   return `<tr>
-            <td>${esc(r.doc_date || r.created_at || "")}</td>
+            <td>${esc(fmtDocTime(r.created_at))}</td>
             <td><a href="#/orders/${r.id}">${esc(r.no)}</a></td>
             <td>${esc(r.customer_name)}</td>
             <td>${fmtMoney(r.total)} ${esc(r.currency)}</td>
@@ -1472,7 +1518,6 @@ function soSheetHtml(o, meta) {
             </select>
           </label>
           <label>预计交货<input name="expected_date" type="date" value="${esc(o.expected_date || "")}"></label>
-          <label>税率%<input name="header_tax_rate" type="number" step="0.01" min="0" value="${o.header_tax_rate ?? 0}"></label>
           <label>币种<select name="currency">${["RMB", "USD", "EUR"].map((c) => `<option ${(o.currency || "RMB") === c ? "selected" : ""}>${c}</option>`).join("")}</select></label>
           <label class="full">备注<input name="order_remark" value="${esc(o.order_remark || "")}"></label>
         </div>
@@ -1510,11 +1555,11 @@ function soLinesTable(lines) {
   const rows = lines.length ? lines : [{}];
   return `<div class="table-wrap"><table class="voucher-table po-line-table">
     <thead><tr>
-      <th></th><th>条码</th><th>商品</th><th>规格</th><th>型号</th><th>备注</th>
-      <th>单位</th><th>数量</th><th>单价</th><th>税率%</th><th>金额</th><th>可用量</th><th>供应商</th><th>赠品</th><th></th>
+      <th></th><th>商品</th><th>规格</th><th>备注</th>
+      <th>单位</th><th>数量</th><th>单价</th><th>金额</th><th>可用量</th><th>供应商</th><th></th>
     </tr></thead>
     <tbody id="so-lines">${rows.map((l) => soLineRow(l)).join("")}</tbody>
-    <tfoot><tr><td colspan="7" class="right">小计</td><td id="so-qty-sum">0</td><td colspan="2"></td><td id="so-goods">0.00</td><td colspan="4"></td></tr></tfoot>
+    <tfoot><tr><td colspan="5" class="right">小计</td><td id="so-qty-sum">0</td><td></td><td id="so-goods">0.00</td><td colspan="3"></td></tr></tfoot>
   </table></div>`;
 }
 
@@ -1524,41 +1569,33 @@ function soLineRow(ln = {}) {
     .join("");
   return `<tr>
     <td class="col-idx"></td>
-    <td><input name="barcode" value="${esc(ln.barcode || ln.sku || "")}"></td>
     <td class="col-product"><select name="product_id"><option value="">请选择</option>${opts}</select></td>
-    <td><input name="spec" value="${esc(ln.spec || "")}"></td>
-    <td><input name="model" value="${esc(ln.model || "")}"></td>
+    <td><input name="spec" value="${esc(lineSpec(ln))}"></td>
     <td><input name="line_remark" value="${esc(ln.line_remark || "")}"></td>
     <td class="col-qty"><input name="unit" value="${esc(ln.unit || "pcs")}"></td>
     <td class="col-qty"><input name="quantity" type="number" step="0.01" min="0" value="${ln.quantity ?? 1}"></td>
     <td class="col-price"><input name="unit_price" type="number" step="0.01" min="0" value="${ln.unit_price ?? 0}"></td>
-    <td class="col-qty"><input name="tax_rate" type="number" step="0.01" min="0" value="${ln.tax_rate ?? 0}"></td>
     <td class="so-amt">0.00</td>
     <td class="muted">—</td>
     <td><input name="supplier_name" value="${esc(ln.supplier_name || "")}"></td>
-    <td><input type="checkbox" name="is_gift" ${ln.is_gift ? "checked" : ""}></td>
     <td class="row-actions"><button type="button" class="ghost ins-line">+</button><button type="button" class="ghost rm-line">删除</button></td>
   </tr>`;
 }
 
 function collectSoPayload(form) {
-  const headerRate = Number(form.header_tax_rate.value) || 0;
   const lines = $$("#so-lines tr")
     .map((tr) => ({
       product_id: $("[name=product_id]", tr).value ? Number($("[name=product_id]", tr).value) : null,
-      sku: $("[name=barcode]", tr).value,
-      barcode: $("[name=barcode]", tr).value,
       spec: $("[name=spec]", tr).value,
-      model: $("[name=model]", tr).value,
       line_remark: $("[name=line_remark]", tr).value,
       unit: $("[name=unit]", tr).value,
       quantity: Number($("[name=quantity]", tr).value),
       unit_price: Number($("[name=unit_price]", tr).value) || 0,
-      tax_rate: Number($("[name=tax_rate]", tr).value) || 0,
+      tax_rate: 0,
       supplier_name: $("[name=supplier_name]", tr).value,
-      is_gift: $("[name=is_gift]", tr).checked,
+      is_gift: false,
     }))
-    .filter((l) => l.quantity > 0 && (l.product_id || l.barcode));
+    .filter((l) => l.quantity > 0 && l.product_id);
   return {
     voucher_type: form.voucher_type.value,
     customer_name: form.customer_name.value,
@@ -1568,7 +1605,7 @@ function collectSoPayload(form) {
     project: form.project.value,
     salesperson_id: form.salesperson_id.value ? Number(form.salesperson_id.value) : null,
     expected_date: form.expected_date.value || null,
-    header_tax_rate: headerRate,
+    header_tax_rate: 0,
     order_remark: form.order_remark.value,
     destination_port: form.destination_port?.value || "",
     freight: Number(form.freight.value) || 0,
@@ -1590,14 +1627,12 @@ function recalcSoLines() {
     if (idx) idx.textContent = i + 1;
     const qty = Number($("[name=quantity]", tr).value) || 0;
     const price = Number($("[name=unit_price]", tr).value) || 0;
-    const rate = Number($("[name=tax_rate]", tr).value) || 0;
-    const gift = $("[name=is_gift]", tr).checked;
-    const amt = gift ? 0 : Math.round(qty * price * (1 + rate / 100) * 100) / 100;
+    const amt = Math.round(qty * price * 100) / 100;
     const cell = $(".so-amt", tr);
     if (cell) cell.textContent = amt.toFixed(2);
     goods += amt;
     qtySum += qty;
-    if ($("[name=product_id]", tr).value || $("[name=barcode]", tr).value) kinds += 1;
+    if ($("[name=product_id]", tr).value) kinds += 1;
   });
   const deposit = Number($("#so-fill [name=deposit]")?.value) || 0;
   const payNow = $("#so-fill [name=pay_deposit]")?.checked;
@@ -1622,11 +1657,8 @@ function bindSoForm({ meta = {}, onDraft, onSubmit }) {
   const fillFromProduct = (tr, pid) => {
     const p = (productsCache || []).find((x) => String(x.id) === String(pid));
     if (!p || !tr) return;
-    $("[name=barcode]", tr).value = p.sku || "";
     $("[name=spec]", tr).value = p.spec || "";
     $("[name=unit]", tr).value = p.unit || "pcs";
-    const rate = Number(form.header_tax_rate.value) || 0;
-    if (!$("[name=tax_rate]", tr).value || Number($("[name=tax_rate]", tr).value) === 0) $("[name=tax_rate]", tr).value = rate;
   };
   const addRow = (ln, after) => {
     const html = soLineRow(ln || {});
@@ -1647,8 +1679,7 @@ function bindSoForm({ meta = {}, onDraft, onSubmit }) {
         alert("未找到产品：" + scan.value);
         return;
       }
-      const rate = Number(form.header_tax_rate.value) || 0;
-      addRow({ product_id: p.id, barcode: p.sku, spec: p.spec, unit: p.unit, quantity: 1, unit_price: 0, tax_rate: rate });
+      addRow({ product_id: p.id, spec: p.spec, unit: p.unit, quantity: 1, unit_price: 0 });
       fillFromProduct($$("#so-lines tr").slice(-1)[0], p.id);
       scan.value = "";
     };
@@ -1661,16 +1692,10 @@ function bindSoForm({ meta = {}, onDraft, onSubmit }) {
     if (e.target.classList.contains("ins-line")) addRow({}, e.target.closest("tr"));
   });
   form.addEventListener("input", (e) => {
-    if (["quantity", "unit_price", "tax_rate", "deposit", "header_tax_rate"].includes(e.target.name)) recalcSoLines();
+    if (["quantity", "unit_price", "deposit"].includes(e.target.name)) recalcSoLines();
   });
   form.addEventListener("change", (e) => {
     if (e.target.name === "product_id") fillFromProduct(e.target.closest("tr"), e.target.value);
-    if (e.target.name === "header_tax_rate") {
-      const rate = Number(e.target.value) || 0;
-      $$("#so-lines [name=tax_rate]").forEach((el) => {
-        if (!el.value || Number(el.value) === 0) el.value = rate;
-      });
-    }
     recalcSoLines();
   });
   if ($("#so-draft") && onDraft)
@@ -1722,12 +1747,12 @@ function orderInfoPanel(o) {
       ${o.contract_remark ? `<p class="order-note">合同备注：${esc(o.contract_remark)}</p>` : ""}
       ${o.audit_remark ? `<p class="order-note muted">审核说明：${esc(o.audit_remark)}</p>` : ""}
       <div class="table-wrap order-lines"><table>
-        <thead><tr><th>条码</th><th>商品</th><th>规格</th><th>型号</th><th>数量</th><th>单价</th><th>税率</th><th>金额</th><th>赠品</th></tr></thead>
+        <thead><tr><th>商品</th><th>规格</th><th>数量</th><th>单价</th><th>金额</th></tr></thead>
         <tbody>
           ${o.lines
             .map(
               (l) =>
-                `<tr><td>${esc(l.barcode || l.sku)}</td><td>${esc(l.product_name)}</td><td>${esc(l.spec)}</td><td>${esc(l.model || "")}</td><td>${l.quantity} ${esc(l.unit)}</td><td>${fmtMoney(l.unit_price)}</td><td>${fmtMoney(l.tax_rate)}%</td><td>${fmtMoney(l.amount)}</td><td>${l.is_gift ? "是" : ""}</td></tr>`
+                `<tr><td>${esc(l.product_name)}</td><td>${esc(lineSpec(l))}</td><td>${l.quantity} ${esc(l.unit)}</td><td>${fmtMoney(l.unit_price)}</td><td>${fmtMoney(l.amount)}</td></tr>`
             )
             .join("")}
         </tbody>
@@ -1779,10 +1804,10 @@ function stageFormHtml(o) {
     const t = o.incoterm || "FOB";
     return `<form id="c-form" class="panel" novalidate>
       <h3>填写合同</h3>
-      <p class="muted advance-desc">按报价交易方式填写。提交后进入履约：采购走采购订单，财务走资金管理。</p>
+      <p class="muted advance-desc">按报价交易方式填写。提交后进入履约：采购走采购订单，财务走财务管理。</p>
       <div class="form-grid contract-form">
-        <label>合同编号（必填）<input name="contract_no" required placeholder="例如 HT-2026-001"></label>
-        <label>合同日期（必填）<input name="contract_date" type="date" required></label>
+        <label>合同编号（自动生成）<input name="contract_no" readonly value="${esc(genContractNo())}"></label>
+        <label>合同日期（必填）<input name="contract_date" type="date" required value="${esc(todayISO())}"></label>
         <label>交易方式（必填）
           <select name="incoterm" id="incoterm" required>
             ${INCOTERMS.map((x) => `<option ${x === t ? "selected" : ""}>${x}</option>`).join("")}
@@ -1852,7 +1877,6 @@ function validateContractForm(form) {
   const term = (form.incoterm?.value || "").trim().toUpperCase();
   const { needLoad, needExw } = incotermNeedFields(term);
   const checks = [
-    [form.contract_no, "合同编号"],
     [form.contract_date, "合同日期"],
     [form.incoterm, "交易方式"],
     [form.customer_country, "客户国家"],
@@ -2008,6 +2032,7 @@ async function viewOrderDetail(id) {
     $("#c-form").onsubmit = async (e) => {
       e.preventDefault();
       if (!validateContractForm(e.target)) return;
+      if (e.target.contract_no) e.target.contract_no.value = genContractNo();
       try {
         await api("/api/orders/" + id + "/submit-contract", { method: "POST", body: new FormData(e.target) });
         viewOrderDetail(id);
@@ -2061,12 +2086,12 @@ async function viewPurchaseOrders() {
       ${me.role === "purchase" ? `<a class="btn" href="#/purchase-orders/new">新建采购单</a>` : ""}
     </form>
     <div class="table-wrap"><table>
-      <thead><tr><th>单据日期</th><th>采购单号</th><th>供应商</th><th>业务员</th><th>销售订单</th><th>金额</th><th>状态</th><th>操作</th></tr></thead>
+      <thead><tr><th>创建时间</th><th>采购单号</th><th>供应商</th><th>业务员</th><th>销售订单</th><th>金额</th><th>状态</th><th>操作</th></tr></thead>
       <tbody>
         ${
           rows.length
             ? rows.map((r) => `<tr>
-                <td>${esc(r.doc_date || r.created_at || "")}</td>
+                <td>${esc(fmtDocTime(r.created_at))}</td>
                 <td><a href="#/purchase-orders/${r.id}">${esc(r.no)}</a></td>
                 <td>${esc(r.supplier_name) || "—"}</td>
                 <td>${esc(r.purchaser_name || r.creator_name)}</td>
@@ -2509,7 +2534,7 @@ async function viewPurchaseOrderDetail(id) {
       o.can_audit
         ? `<form id="po-audit" class="panel">
             <h3>管理员审核</h3>
-            <p class="muted advance-desc">通过后采购单生效，并在资金管理生成一张关联付款单，供财务登记实际付款。</p>
+            <p class="muted advance-desc">通过后采购单生效，并在财务管理生成一张关联付款单，供财务登记实际付款。</p>
             <label class="advance-field">审核说明<textarea name="remark"></textarea></label>
             <div class="row-actions form-footer">
               <button type="button" id="po-pass">审核通过</button>
@@ -2719,15 +2744,15 @@ async function viewFinance() {
         <a class="btn" href="${newHref}">新建${title}</a>
       </div>
       <div class="table-wrap"><table>
-        <thead><tr><th>单号</th><th>类型</th><th>日期</th><th>往来单位</th><th>${direction === "payment" ? "采购单" : "销售订单"}</th><th>结算合计</th><th>现金折扣</th><th>本次金额</th><th>摘要</th><th>备注</th><th>操作人</th><th></th></tr></thead>
+        <thead><tr><th>创建时间</th><th>单号</th><th>类型</th><th>往来单位</th><th>${direction === "payment" ? "采购单" : "销售订单"}</th><th>结算合计</th><th>现金折扣</th><th>本次金额</th><th>摘要</th><th>备注</th><th>操作人</th><th></th></tr></thead>
         <tbody>${
           rows.length
             ? rows
                 .map(
                   (r) => `<tr>
+            <td>${esc(fmtDocTime(r.created_at))}</td>
             <td><a href="#/finance/${direction === "receipt" ? "receipts" : "payments"}/${r.id}">${esc(r.no)}</a></td>
             <td>${r.needs_fill ? `<span class="pill fill">待填写</span> ` : ""}${esc(r.type_label)}</td>
-            <td>${esc(r.biz_date)}</td>
             <td>${esc(r.partner_name)}</td>
             <td>${esc(r.linked_docs || "—")}</td>
             <td>${fmtMoney(r.settle_total)} ${esc(r.currency || "")}</td>
@@ -2744,7 +2769,7 @@ async function viewFinance() {
         }</tbody>
       </table></div>`;
   }
-  pageTitle("资金管理");
+  pageTitle("财务管理");
   $("#view").innerHTML = `
     <div class="inq-page">
     <div class="toolbar">${tabs.map(([k, l]) => `<a class="btn ${tab === k ? "" : "ghost"}" href="${financeTabHref(k)}">${l}</a>`).join("")}</div>
@@ -3167,7 +3192,6 @@ async function viewUsers() {
 }
 
 async function route() {
-  stopAssistantTimer();
   const { path } = parseHash();
   if (path === "#/login") {
     showLogin();
@@ -3198,7 +3222,6 @@ async function route() {
     else if (path === "#/purchase-orders/new") await viewPurchaseOrderNew();
     else if (path === "#/purchase-orders") await viewPurchaseOrders();
     else if (path.startsWith("#/purchase-orders/")) await viewPurchaseOrderDetail(path.split("/")[2]);
-    else if (path === "#/assistant") await viewAssistant();
     else if (path === "#/finance/receipts/new") await viewVoucherForm("receipt");
     else if (path.startsWith("#/finance/receipts/")) await viewVoucherForm("receipt", path.split("/")[3]);
     else if (path === "#/finance/payments/new") await viewVoucherForm("payment");

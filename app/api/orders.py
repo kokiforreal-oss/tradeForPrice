@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import date
 from decimal import Decimal, ROUND_HALF_UP
+import re
 from typing import Annotated, List, Optional
 
 from fastapi import APIRouter, Depends, Form, HTTPException
@@ -14,7 +15,7 @@ from app.db.database import get_db
 from app.db.models import Inquiry, InquiryLine, Order, OrderLine, OrderLog, Product, Quote, User
 from app.api.purchase_orders import ensure_po_from_sales_order
 from app.core.e2e import MoneyIn, money, to_api_money
-from app.core.utils import apply_doc_date_range, fmt_dt, next_no, to_float
+from app.core.utils import apply_doc_date_range, fmt_dt, line_spec, next_contract_no, next_no, to_float
 
 router = APIRouter(prefix="/api/orders", tags=["orders"])
 
@@ -105,8 +106,7 @@ def serialize_order(order: Order, user: Optional[User] = None) -> dict:
                     "sku": ln.sku,
                     "barcode": ln.barcode or ln.sku or "",
                     "product_name": ln.product_name,
-                    "spec": ln.spec,
-                    "model": ln.model or "",
+                    "spec": line_spec(ln.spec, ln.model),
                     "line_remark": ln.line_remark or "",
                     "unit": ln.unit,
                     "quantity": to_float(ln.quantity),
@@ -128,8 +128,7 @@ def serialize_order(order: Order, user: Optional[User] = None) -> dict:
                     "sku": p.sku if p else "",
                     "barcode": (p.sku if p else "") or "",
                     "product_name": (p.name if p else "") or getattr(ln, "product_name", "") or "",
-                    "spec": (p.spec if p else "") or getattr(ln, "spec", "") or "",
-                    "model": "",
+                    "spec": line_spec((p.spec if p else ""), getattr(ln, "spec", "")),
                     "line_remark": "",
                     "unit": (p.unit if p else "") or getattr(ln, "unit", "") or "",
                     "quantity": to_float(ln.quantity),
@@ -396,8 +395,8 @@ def replace_so_lines(db: Session, order: Order, lines: List[SoLineIn]) -> Decima
                 sku=(p.sku if p else ln.sku) or "",
                 barcode=(ln.barcode or (p.sku if p else "") or ln.sku) or "",
                 product_name=(p.name if p else ln.product_name) or "",
-                spec=(p.spec if p else ln.spec) or "",
-                model=(ln.model or "").strip(),
+                spec=line_spec(ln.spec, ln.model, p.spec if p else ""),
+                model="",
                 line_remark=(ln.line_remark or "").strip(),
                 unit=(p.unit if p else ln.unit) or "pcs",
                 quantity=qty,
@@ -555,7 +554,7 @@ async def submit_contract(
     order_id: int,
     db: Annotated[Session, Depends(get_db)],
     user: Annotated[User, Depends(require_roles("sales"))],
-    contract_no: str = Form(...),
+    contract_no: str = Form(""),
     contract_date: str = Form(...),
     incoterm: str = Form(...),
     customer_country: str = Form(""),
@@ -589,7 +588,16 @@ async def submit_contract(
         d = date.fromisoformat(contract_date)
     except ValueError:
         raise HTTPException(400, "合同日期格式错误")
-    order.contract_no = contract_no.strip()
+    raw = (contract_no or "").strip()
+    taken = (
+        db.query(Order.id).filter(Order.contract_no == raw, Order.id != order.id).first()
+        if raw
+        else True
+    )
+    if raw and re.fullmatch(r"HT-\d{8}-\d{6}(-\d+)?", raw) and not taken:
+        order.contract_no = raw
+    else:
+        order.contract_no = next_contract_no(db)
     order.contract_date = d
     order.incoterm = term
     order.customer_country = customer_country.strip()

@@ -40,10 +40,10 @@ source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 cp .env.example .env
 # 修改 DATABASE_URL、SECRET_KEY（切勿把真实口令提交到版本库）
-uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+uvicorn app.main:app --host 0.0.0.0 --port 8090 --reload
 ```
 
-浏览器打开：**http://127.0.0.1:8000/**  
+浏览器打开：**http://127.0.0.1:8090/**  
 不要使用 `/finance` 这类无哈希的路径当首页。
 
 启动时只创建缺失的表、只给旧表补列，**不会清空已有数据**。`users` 表为空时才写入演示账号（角色：管理员、销售、采购、财务）。演示口令仅存在于本机初始化逻辑中，**本文不写明文**；登录后请立即修改，生产环境必须改 `SECRET_KEY` 并用管理员分配正式账号。

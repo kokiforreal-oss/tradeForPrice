@@ -13,7 +13,7 @@ from app.core.auth import ROLE_LABEL, get_current_user, require_roles
 from app.db.database import get_db
 from app.db.models import FinanceAllocLine, FinanceInvoice, FinancePayment, FinanceVoucher, FinanceWriteoff, Inquiry, InquiryLine, Order, OrderLog, Product, PurchaseOrder, PurchaseOrderLine, PurchaseOrderLog, Quote, User
 from app.core.e2e import MoneyIn, money, to_api_money
-from app.core.utils import apply_doc_date_range, fmt_dt, next_no, to_float
+from app.core.utils import apply_doc_date_range, fmt_dt, line_spec, next_no, to_float
 
 router = APIRouter(prefix="/api/purchase-orders", tags=["purchase-orders"])
 
@@ -194,12 +194,12 @@ def replace_lines(db: Session, po: PurchaseOrder, lines: List[LineIn]) -> Decima
                 sku=(p.sku if p else ln.sku) or "",
                 barcode=(ln.barcode or (p.sku if p else "") or ln.sku) or "",
                 product_name=(p.name if p else ln.product_name) or "",
-                spec=(p.spec if p else ln.spec) or "",
+                spec=line_spec(ln.spec, ln.model, p.spec if p else ""),
                 unit=(p.unit if p else ln.unit) or "pcs",
                 quantity=qty,
                 unit_price=price,
                 amount=amount,
-                model=(ln.model or "").strip(),
+                model="",
                 line_remark=(ln.line_remark or "").strip(),
                 tax_rate=rate,
                 warehouse=(ln.warehouse or "").strip(),
@@ -358,8 +358,7 @@ def serialize_po(po: PurchaseOrder, user: Optional[User] = None) -> dict:
                 "sku": ln.sku,
                 "barcode": getattr(ln, "barcode", "") or ln.sku or "",
                 "product_name": ln.product_name,
-                "spec": ln.spec,
-                "model": getattr(ln, "model", "") or "",
+                "spec": line_spec(ln.spec, getattr(ln, "model", "")),
                 "line_remark": getattr(ln, "line_remark", "") or "",
                 "unit": ln.unit,
                 "quantity": to_float(ln.quantity),

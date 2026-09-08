@@ -38,6 +38,21 @@ def next_no(db: Session, model, prefix: str) -> str:
     return f"{head}{seq:04d}"
 
 
+def next_contract_no(db: Session) -> str:
+    """合同编号：HT-年月日-时分秒（北京时间），同一秒冲突时加序号。"""
+    from app.db.models import Order
+
+    stamp = datetime.now(TZ).strftime("%Y%m%d-%H%M%S")
+    base = f"HT-{stamp}"
+    exists = db.query(Order.id).filter(Order.contract_no == base).first()
+    if not exists:
+        return base
+    n = 2
+    while db.query(Order.id).filter(Order.contract_no == f"{base}-{n}").first():
+        n += 1
+    return f"{base}-{n}"
+
+
 def parse_iso_date(value: Optional[str]) -> Optional[date]:
     raw = (value or "").strip()
     if not raw:
@@ -86,3 +101,11 @@ def fmt_dt(v):
             v = v.astimezone(TZ)
         return v.strftime("%Y-%m-%d %H:%M")
     return v.isoformat()
+
+
+def line_spec(*parts: Optional[str]) -> str:
+    for p in parts:
+        s = (p or "").strip()
+        if s:
+            return s
+    return ""
