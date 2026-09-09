@@ -53,7 +53,8 @@ PO_NEXT = {
     "accepted": "done",
     "received": "inbound",
 }
-LOGISTICS_STATUSES = ("in_progress", "stuffed", "domestic_inbound", "overseas_transit", "inbound")
+LOGISTICS_STATUSES = ("in_progress", "domestic_accepted")
+RESULT_STATUSES = ("stuffed", "domestic_inbound", "overseas_transit", "inbound", "received")
 ADVANCE_LABELS = {
     "received": "确认收货",
     "stuffed": "确认国内运输",
@@ -149,6 +150,10 @@ class AuditIn(BaseModel):
 class LogisticsIn(BaseModel):
     logistics_company: str = ""
     tracking_no: str = ""
+    comment: str = ""
+
+
+class AdvanceIn(BaseModel):
     comment: str = ""
 
 
@@ -822,6 +827,7 @@ def advance_po(
     po_id: int,
     db: Annotated[Session, Depends(get_db)],
     user: Annotated[User, Depends(get_current_user)],
+    body: AdvanceIn = AdvanceIn(),
 ):
     po = load_po(db, po_id)
     if not po or user.role != "purchase" or not is_purchase_owner(user, po):
@@ -829,6 +835,9 @@ def advance_po(
     nxt = po_next_status(po)
     if not nxt:
         raise HTTPException(400, "当前状态不可推进")
+    result = (body.comment or "").strip()
+    if po.status in RESULT_STATUSES and not result:
+        raise HTTPException(400, "请填写结果")
     prev = po.status
     po.status = nxt
     db.add(
@@ -837,7 +846,7 @@ def advance_po(
             kind="status",
             from_status=prev,
             to_status=nxt,
-            comment=ADVANCE_LABELS.get(nxt, nxt),
+            comment=result or ADVANCE_LABELS.get(nxt, nxt),
             operator_id=user.id,
         )
     )

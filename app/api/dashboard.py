@@ -37,12 +37,27 @@ def _todo(
 def build_todos(db: Session, user: User) -> List[dict]:
     items: list[dict] = []
     if user.role == "admin":
+        for inq in (
+            db.query(Inquiry)
+            .filter(Inquiry.status == "pending_quote")
+            .order_by(Inquiry.updated_at.desc(), Inquiry.id.desc())
+            .all()
+        ):
+            items.append(
+                _todo(
+                    "quote",
+                    f"审核询价单 {inq.no}",
+                    f"#/inquiries/{inq.id}",
+                    "待审核询价单",
+                    inq.customer_name or "待报价",
+                    fmt_dt(inq.updated_at or inq.created_at),
+                )
+            )
         for o in (
             db.query(Order)
             .options(joinedload(Order.inquiry))
             .filter(Order.status == "pending_audit")
             .order_by(Order.updated_at.desc(), Order.id.desc())
-            .limit(TODO_LIMIT)
             .all()
         ):
             customer = (o.customer_name or "") or (o.inquiry.customer_name if o.inquiry else "")
@@ -51,7 +66,7 @@ def build_todos(db: Session, user: User) -> List[dict]:
                     "audit",
                     f"审核销售订单 {o.no}",
                     f"#/orders/{o.id}",
-                    "待审核",
+                    "待审核销售单",
                     customer or "待核对客户",
                     fmt_dt(o.updated_at or o.created_at),
                 )
@@ -60,7 +75,6 @@ def build_todos(db: Session, user: User) -> List[dict]:
             db.query(PurchaseOrder)
             .filter(PurchaseOrder.status == "pending_audit")
             .order_by(PurchaseOrder.updated_at.desc(), PurchaseOrder.id.desc())
-            .limit(TODO_LIMIT)
             .all()
         ):
             items.append(
@@ -68,11 +82,13 @@ def build_todos(db: Session, user: User) -> List[dict]:
                     "audit",
                     f"审核采购订单 {po.no}",
                     f"#/purchase-orders/{po.id}",
-                    "待审核",
+                    "待审核采购单",
                     po.supplier_name or "待核对供应商",
                     fmt_dt(po.updated_at or po.created_at),
                 )
             )
+        items.sort(key=lambda x: x.get("time") or "", reverse=True)
+        return items
     elif user.role == "sales":
         for inq in (
             db.query(Inquiry)
@@ -221,8 +237,15 @@ def dashboard(
     if user.role == "admin":
         cards.append(
             {
+                "key": "pending_quote",
+                "label": "待审核询价单",
+                "count": db.query(Inquiry).filter(Inquiry.status == "pending_quote").count(),
+            }
+        )
+        cards.append(
+            {
                 "key": "pending_audit",
-                "label": "待审销售单",
+                "label": "待审核销售单",
                 "count": db.query(Order).filter(Order.status == "pending_audit").count(),
             }
         )
@@ -230,7 +253,7 @@ def dashboard(
         cards.append(
             {
                 "key": "po_pending",
-                "label": "待审采购单",
+                "label": "待审核采购单",
                 "count": pos.filter(PurchaseOrder.status == "pending_audit").count(),
             }
         )

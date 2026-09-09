@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="zh-CN" data-build="20260908175135">
+<html lang="zh-CN" data-build="20260909101434">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=1280" />
@@ -21,7 +21,7 @@
       href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+SC:wght@400;500;600;700&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="/static/css/app.css?v=20260908175135" />
+    <link rel="stylesheet" href="/static/css/app.css?v=20260909101434" />
   </head>
   <body>
     <div id="login-page" class="login-wrap">
@@ -66,19 +66,22 @@
       <div class="workspace">
         <header class="page-head">
           <div class="page-head-copy">
-            <h2 id="page-title">工作台</h2>
+            <div class="page-title-row">
+              <span class="page-title-ico" id="page-title-ico" hidden aria-hidden="true"><i></i><i></i><i></i><i></i></span>
+              <h2 id="page-title">工作台</h2>
+            </div>
             <p class="muted" id="page-sub"></p>
           </div>
           <div class="page-head-right">
             <div id="who"></div>
             <button type="button" class="ghost theme-toggle" data-theme-toggle>深色</button>
-            <button type="button" id="logout" class="ghost">退出</button>
+            <button type="button" id="logout" class="ghost logout-btn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 7V5a2 2 0 0 1 2-2h7v18h-7a2 2 0 0 1-2-2v-2"/><path d="M4 12h10M11 9l3 3-3 3"/></svg>退出</button>
           </div>
         </header>
         <section id="view"></section>
       </div>
     </div>
-    <script src="/static/js/e2e.js?v=20260908175135"></script>
-    <script src="/static/js/app.js?v=20260908175135"></script>
+    <script src="/static/js/e2e.js?v=20260909101434"></script>
+    <script src="/static/js/app.js?v=20260909101434"></script>
   </body>
 </html>

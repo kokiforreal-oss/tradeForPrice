@@ -7,8 +7,11 @@ function themeValue() {
 }
 function syncThemeButtons() {
   const dark = themeValue() === "dark";
+  const moon = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 14.5A8.5 8.5 0 0 1 9.5 3 7 7 0 1 0 21 14.5z"/></svg>`;
+  const sun = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 3v2M12 19v2M5 12H3M21 12h-2M6.2 6.2l1.4 1.4M16.4 16.4l1.4 1.4M6.2 17.8l1.4-1.4M16.4 7.6l1.4-1.4"/></svg>`;
   $$("[data-theme-toggle]").forEach((btn) => {
-    btn.textContent = dark ? "浅色" : "深色";
+    const label = dark ? "浅色" : "深色";
+    btn.innerHTML = `${dark ? sun : moon}<span>${label}</span>`;
     btn.setAttribute("aria-pressed", dark ? "true" : "false");
     btn.title = dark ? "切换浅色模式" : "切换深色模式";
   });
@@ -247,11 +250,13 @@ function renderNav() {
   const foot = items.filter((i) => i.foot);
   $("#nav-foot").innerHTML = renderNavLinks(foot, path);
   $("#nav-foot").classList.toggle("hidden", !foot.length);
-  $("#who").innerHTML = `<span class="who-avatar">${esc((me.name || "?").slice(0, 1))}</span><span class="who-text">${esc(me.name)} · ${esc(me.role_label)}</span>`;
+  $("#who").innerHTML = `<span class="who-avatar">${esc((me.name || "?").slice(0, 1))}</span><span class="who-text">${esc(me.name)} · ${esc(me.role_label)}</span><span class="who-online">在线</span>`;
 }
 
 function pageTitle(t, sub) {
   $("#page-title").textContent = t;
+  const ico = $("#page-title-ico");
+  if (ico) ico.hidden = t !== "工作台";
   const el = $("#page-sub");
   if (el) {
     el.textContent = sub || "";
@@ -438,13 +443,22 @@ const CARD_HREF = {
   pay_fill: "#/finance?tab=payments",
 };
 
+function kpiIconSvg(i) {
+  const icons = [
+    `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="7" y="4" width="11" height="16" rx="2"/><path d="M10 4.5h5v2h-5zM10 11h5M10 15h3"/></svg>`,
+    `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7 3.5h8l4 4V20a1.5 1.5 0 0 1-1.5 1.5h-10.5A1.5 1.5 0 0 1 5.5 20V5A1.5 1.5 0 0 1 7 3.5z"/><path d="M15 3.5V8h4.5M12 11v7M10 13.2c.4-1.2 4-1.2 4 .8s-3.6 1.1-4 2.2"/></svg>`,
+    `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="7" y="4" width="11" height="16" rx="2"/><path d="M10 4.5h5v2h-5zM9.5 13.5l2 2 3.5-4"/></svg>`,
+  ];
+  return icons[i % icons.length];
+}
+
 async function viewHome() {
-  pageTitle("工作台", me.role === "admin" ? "待审核销售订单与采购订单" : "今日待办与快捷入口");
+  pageTitle("工作台", me.role === "admin" ? "待审核询价单、销售订单与采购订单 | 今日业务审核概览" : "今日待办与快捷入口");
   const d = await api("/api/dashboard");
   const todos = d.todos || [];
   const todoHint =
     me.role === "admin"
-      ? "待审核的销售订单、采购订单会显示在这里。"
+      ? "待审核的询价单、销售订单、采购订单会显示在这里。"
       : me.role === "sales"
         ? "已报价询价单、审核驳回待处理的单据、待填写合同会显示在这里。"
         : me.role === "purchase"
@@ -452,32 +466,32 @@ async function viewHome() {
           : me.role === "finance"
             ? "采购单审核通过后生成的待填写付款单会显示在这里。"
             : "当前角色没有流程待办。";
-  const tones = ["blue", "teal", "ok", "violet", "warn"];
-  const cards = [
-    { key: "_todos", label: me.role === "admin" ? "待审核" : "待处理事项", count: todos.length },
-    ...(d.cards || []),
-  ];
+  const cards =
+    me.role === "admin"
+      ? d.cards || []
+      : [{ key: "_todos", label: "待处理事项", count: todos.length }, ...(d.cards || [])];
+  const emptyIco = kpiIconSvg(0);
   $("#view").innerHTML = `
+    <div class="home-board">
     <div class="today-head">
       <div>
         <strong>${esc(fmtWorkday())}</strong>
-        <p class="muted" style="margin:4px 0 0">你好，${esc(d.name || me.name || "")}。${me.role === "admin" ? "请处理待审核单据。" : "按清单处理今日事项。"}</p>
+        <p>你好，${esc(d.name || me.name || "")}。${me.role === "admin" ? "请处理待审核单据。" : "按清单处理今日事项。"}</p>
       </div>
       <div class="today-head-meta">
         <span class="${todos.length ? "hot" : "ok"}">${todos.length ? `${todos.length} 项待办未完成` : "待办已清"}</span>
-        <span>${esc(me.role_label || "")}</span>
+        <span class="role">${esc(me.role_label || "")}</span>
       </div>
     </div>
     <div class="kpi-grid">
       ${cards
         .map((c, i) => {
           const href = CARD_HREF[c.key] || "#/home";
-          const tone = c.count ? tones[i % tones.length] : "";
-          return `<a class="kpi ${tone}" href="${href}"><div class="n">${c.count}</div><div class="l">${esc(c.label)}</div></a>`;
+          return `<a class="kpi" href="${href}"><div><div class="n">${c.count}</div><div class="l">${esc(c.label)}</div></div><span class="kpi-ico">${kpiIconSvg(i)}</span></a>`;
         })
         .join("")}
     </div>
-    <div class="panel">
+    <div class="panel home-todo-panel">
       <div class="panel-head">
         <div>
           <h3>待办清单</h3>
@@ -488,8 +502,9 @@ async function viewHome() {
       ${
         todos.length
           ? `<div class="todo-list">${todos.map(renderHomeTodo).join("")}</div>`
-          : `<div class="empty-box"><b>没有待办</b><p class="muted">暂无待办，当前事项都已处理。</p></div>`
+          : `<div class="empty-box"><div class="empty-ico">${emptyIco}</div><b>没有待办</b><p class="muted">暂无待办，当前事项都已处理。</p></div>`
       }
+    </div>
     </div>`;
 }
 
@@ -1998,23 +2013,31 @@ function validateContractForm(form) {
 
 function poAdvanceAction(o) {
   const map = {
-    in_progress: { title: "国内运输", desc: "工厂发货后走国内运输，确认后再入库验货。", btn: "确认国内运输" },
-    stuffed: { title: "国内入库", desc: "国内运输完成后确认入库。", btn: "确认入库" },
-    domestic_inbound: { title: "国内验货", desc: "国内入库后确认验货。", btn: "确认验货" },
-    domestic_accepted: { title: "国外运输", desc: "国内验货完成后进入国外运输。", btn: "确认国外运输" },
-    overseas_transit: { title: "国外入库", desc: "国外运输到达后确认入库。", btn: "确认入库" },
-    inbound: { title: "国外验货", desc: "国外入库后确认验货。", btn: "确认验货" },
-    received: { title: "国外入库", desc: "确认收货后办理入库。", btn: "确认入库" },
+    in_progress: { title: "国内运输", desc: "工厂发货后走国内运输，可登记物流公司与运单。", btn: "确认国内运输" },
+    stuffed: { title: "国内入库", desc: "国内运输完成后填写入库结果即可。", btn: "确认入库" },
+    domestic_inbound: { title: "国内验货", desc: "国内入库后填写验货结果即可。", btn: "确认验货" },
+    domestic_accepted: { title: "国外运输", desc: "国内验货完成后进入国外运输，可登记物流信息。", btn: "确认国外运输" },
+    overseas_transit: { title: "国外入库", desc: "国外运输到达后填写入库结果即可。", btn: "确认入库" },
+    inbound: { title: "国外验货", desc: "国外入库后填写验货结果即可。", btn: "确认验货" },
+    received: { title: "国外入库", desc: "确认收货后填写入库结果即可。", btn: "确认入库" },
     accepted: { title: "完成", desc: "国外验货无误后，采购单进入已完成。", btn: "确认完成" },
   };
   return map[o.status] || null;
 }
 
+function poResultPlaceholder(status) {
+  if (status === "stuffed" || status === "overseas_transit" || status === "received") return "例如货物齐全、已入主仓、短少待补";
+  if (status === "domestic_inbound" || status === "inbound") return "例如合格、有破损、与合同一致";
+  return "选填";
+}
+
 function poFulfillPanelHtml(o) {
   if (!o.can_logistics && !o.can_advance) return "";
   const action = poAdvanceAction(o);
-  const logiForm = o.can_logistics
-    ? `<form id="po-logi" style="margin-top:8px">
+  const resultStep = ["stuffed", "domestic_inbound", "overseas_transit", "inbound", "received"].includes(o.status);
+  let body = "";
+  if (o.can_logistics) {
+    body = `<form id="po-logi" style="margin-top:8px">
         <div class="form-grid inq-form">
           <label>物流公司<input name="logistics_company"></label>
           <label>提单/运单号<input name="tracking_no"></label>
@@ -2024,14 +2047,23 @@ function poFulfillPanelHtml(o) {
           <button type="submit">添加更新</button>
           ${o.can_advance && action ? `<button type="button" id="po-adv">${esc(action.btn)}</button>` : ""}
         </div>
-      </form>`
-    : o.can_advance && action
-      ? `<p class="muted advance-desc">${esc(action.desc)}</p><div class="row-actions form-footer"><button type="button" id="po-adv">${esc(action.btn)}</button></div>`
-      : "";
+      </form>`;
+  } else if (o.can_advance && action && resultStep) {
+    body = `<form id="po-result-form" style="margin-top:8px">
+        <div class="form-grid inq-form">
+          <label class="full">结果<input id="po-result" name="comment" required placeholder="${esc(poResultPlaceholder(o.status))}"></label>
+        </div>
+        <div class="row-actions form-footer">
+          <button type="submit" id="po-adv">${esc(action.btn)}</button>
+        </div>
+      </form>`;
+  } else if (o.can_advance && action) {
+    body = `<p class="muted advance-desc">${esc(action.desc)}</p><div class="row-actions form-footer"><button type="button" id="po-adv">${esc(action.btn)}</button></div>`;
+  }
   return `<div class="panel">
     <h3>${esc(action ? action.title : "物流")}</h3>
-    ${o.can_logistics ? `<p class="muted advance-desc">${esc(action?.desc || "登记物流进度。")}</p>` : ""}
-    ${logiForm}
+    ${o.can_logistics || resultStep ? `<p class="muted advance-desc">${esc(action?.desc || "")}</p>` : ""}
+    ${body}
   </div>`;
 }
 
@@ -2729,14 +2761,28 @@ async function viewPurchaseOrderDetail(id) {
       }
     };
   }
-  if ($("#po-adv")) {
-    $("#po-adv").onclick = async () => {
-      try {
-        await api(`/api/purchase-orders/${id}/advance`, { method: "POST" });
-        viewPurchaseOrderDetail(id);
-      } catch (err) {
-        alert(err.message || "推进失败");
+  const sendAdvance = async (comment) => {
+    try {
+      await api(`/api/purchase-orders/${id}/advance`, { method: "POST", json: { comment: comment || "" } });
+      viewPurchaseOrderDetail(id);
+    } catch (err) {
+      alert(err.message || "推进失败");
+    }
+  };
+  if ($("#po-result-form")) {
+    $("#po-result-form").onsubmit = async (e) => {
+      e.preventDefault();
+      const v = ($("#po-result")?.value || "").trim();
+      if (!v) {
+        alert("请填写结果");
+        $("#po-result")?.focus();
+        return;
       }
+      await sendAdvance(v);
+    };
+  } else if ($("#po-adv")) {
+    $("#po-adv").onclick = async () => {
+      await sendAdvance("");
     };
   }
   if (o.can_fill) {
