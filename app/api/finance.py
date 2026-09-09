@@ -31,7 +31,17 @@ router = APIRouter(prefix="/api/finance", tags=["finance"])
 
 FINANCE_ROLES = ("admin", "finance")
 OPEN_ORDER_STATUSES = ("contract", "fulfilling", "done", "payment", "production", "shipping", "balance")
-OPEN_PO_STATUSES = ("in_progress", "received", "inbound", "accepted", "done")
+OPEN_PO_STATUSES = (
+    "in_progress",
+    "received",
+    "stuffed",
+    "domestic_inbound",
+    "domestic_accepted",
+    "overseas_transit",
+    "inbound",
+    "accepted",
+    "done",
+)
 PROFIT_PO_SKIP = ("pending_fill", "pending_audit", "rejected")
 PO_STATUS_LABEL = {
     "pending_fill": "待采购填写",
@@ -39,8 +49,12 @@ PO_STATUS_LABEL = {
     "rejected": "已驳回",
     "in_progress": "进行中",
     "received": "收货",
-    "inbound": "入库",
-    "accepted": "验收",
+    "stuffed": "国内运输",
+    "domestic_inbound": "国内入库",
+    "domestic_accepted": "国内验货",
+    "overseas_transit": "国外运输",
+    "inbound": "国外入库",
+    "accepted": "国外验货",
     "done": "已完成",
 }
 SETTLE_METHODS = ("现金", "银行转账", "电汇", "支付宝", "微信", "支票")

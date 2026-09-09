@@ -134,18 +134,23 @@ def build_todos(db: Session, user: User) -> List[dict]:
     elif user.role == "purchase":
         for inq in (
             db.query(Inquiry)
-            .filter(Inquiry.status == "pending_quote")
+            .outerjoin(Order, Order.inquiry_id == Inquiry.id)
+            .filter(
+                Inquiry.status.in_(("pending_quote", "quoted", "selling")),
+                Order.id.is_(None),
+            )
             .order_by(Inquiry.updated_at.desc(), Inquiry.id.desc())
             .limit(TODO_LIMIT)
             .all()
         ):
+            waiting = inq.status == "pending_quote"
             items.append(
                 _todo(
                     "quote",
-                    f"询价待报价 {inq.no}",
+                    f"{'询价待报价' if waiting else '询价可报价'} {inq.no}",
                     f"#/inquiries/{inq.id}",
-                    "待报价",
-                    inq.customer_name or "待报价",
+                    "待报价" if waiting else "可报价",
+                    inq.customer_name or ("待报价" if waiting else "可继续提交报价"),
                     fmt_dt(inq.updated_at or inq.created_at),
                 )
             )
@@ -253,7 +258,7 @@ def dashboard(
             pos = filter_purchase_orders(db.query(PurchaseOrder), user)
             cards.append({"key": "po_fill", "label": "待填采购单", "count": pos.filter(PurchaseOrder.status == "pending_fill").count()})
             cards.append({"key": "po_pending", "label": "待审采购单", "count": pos.filter(PurchaseOrder.status == "pending_audit").count()})
-            cards.append({"key": "po_progress", "label": "采购进行中", "count": pos.filter(PurchaseOrder.status == "in_progress").count()})
+            cards.append({"key": "po_progress", "label": "采购进行中", "count": pos.filter(PurchaseOrder.status.in_(("in_progress", "stuffed", "domestic_inbound", "domestic_accepted", "overseas_transit", "inbound", "accepted"))).count()})
     return {
         "name": user.name,
         "role": user.role,

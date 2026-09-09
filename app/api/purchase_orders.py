@@ -13,7 +13,7 @@ from app.core.auth import ROLE_LABEL, get_current_user, require_roles
 from app.db.database import get_db
 from app.db.models import FinanceAllocLine, FinanceInvoice, FinancePayment, FinanceVoucher, FinanceWriteoff, Inquiry, InquiryLine, Order, OrderLog, Product, PurchaseOrder, PurchaseOrderLine, PurchaseOrderLog, Quote, User
 from app.core.e2e import MoneyIn, money, to_api_money
-from app.core.utils import apply_doc_date_range, fmt_dt, line_spec, next_no, to_float
+from app.core.utils import apply_doc_date_range, apply_person_name, fmt_dt, line_spec, next_no, to_float
 
 router = APIRouter(prefix="/api/purchase-orders", tags=["purchase-orders"])
 
@@ -23,13 +23,79 @@ PO_STATUS = {
     "rejected": "已驳回",
     "in_progress": "进行中",
     "received": "收货",
-    "inbound": "入库",
-    "accepted": "验收",
+    "stuffed": "国内运输",
+    "domestic_inbound": "国内入库",
+    "domestic_accepted": "国内验货",
+    "overseas_transit": "国外运输",
+    "inbound": "国外入库",
+    "accepted": "国外验货",
     "done": "已完成",
 }
-PO_STEPS = ["pending_fill", "pending_audit", "in_progress", "received", "inbound", "accepted", "done"]
-PO_NEXT = {"in_progress": "received", "received": "inbound", "inbound": "accepted", "accepted": "done"}
+PO_STEPS = [
+    "pending_fill",
+    "pending_audit",
+    "in_progress",
+    "stuffed",
+    "domestic_inbound",
+    "domestic_accepted",
+    "overseas_transit",
+    "inbound",
+    "accepted",
+    "done",
+]
+PO_NEXT = {
+    "in_progress": "stuffed",
+    "stuffed": "domestic_inbound",
+    "domestic_inbound": "domestic_accepted",
+    "domestic_accepted": "overseas_transit",
+    "overseas_transit": "inbound",
+    "inbound": "accepted",
+    "accepted": "done",
+    "received": "inbound",
+}
+LOGISTICS_STATUSES = ("in_progress", "stuffed", "domestic_inbound", "overseas_transit", "inbound")
+ADVANCE_LABELS = {
+    "received": "确认收货",
+    "stuffed": "确认国内运输",
+    "domestic_inbound": "确认国内入库",
+    "domestic_accepted": "确认国内验货",
+    "overseas_transit": "确认国外运输",
+    "inbound": "确认国外入库",
+    "accepted": "确认国外验货",
+    "done": "确认完成",
+}
+PO_FLOW_SHORT = {
+    "stuffed": "运输",
+    "domestic_inbound": "入库",
+    "domestic_accepted": "验货",
+    "overseas_transit": "运输",
+    "inbound": "入库",
+    "accepted": "验货",
+}
 PO_WAREHOUSES = ["主仓", "原料仓", "成品仓", "退货仓", "第三方仓"]
+
+
+def po_next_status(po: PurchaseOrder) -> Optional[str]:
+    return PO_NEXT.get(po.status)
+
+
+def po_flow_rows() -> list[dict]:
+    def items(keys: list[str]) -> list[dict]:
+        return [{"key": k, "label": PO_FLOW_SHORT.get(k, PO_STATUS[k])} for k in keys]
+
+    return [
+        {
+            "label": "国内采购",
+            "items": items(
+                ["pending_fill", "pending_audit", "in_progress", "stuffed", "domestic_inbound", "domestic_accepted"]
+            ),
+        },
+        {
+            "label": "国外直发",
+            "fork": "in_progress",
+            "items": items(["overseas_transit", "inbound", "accepted", "done"]),
+        },
+    ]
 
 
 class LineIn(BaseModel):
@@ -108,6 +174,29 @@ def bind_adopted_quote(db: Session, order: Optional[Order]) -> None:
     inq = order.inquiry
     if inq and inq.selected_quote_id and not getattr(inq, "selected_quote", None):
         inq.selected_quote = db.get(Quote, inq.selected_quote_id)
+
+
+def apply_quote_factory(po: PurchaseOrder, quote: Optional[Quote]) -> None:
+    if not quote:
+        return
+    name = (getattr(quote, "factory_name", None) or "").strip()
+    if name:
+        po.supplier_name = name
+    contact = (getattr(quote, "factory_contact", None) or "").strip()
+    if contact:
+        po.contact_name = contact
+    phone = (getattr(quote, "factory_phone", None) or "").strip()
+    if phone:
+        po.contact_phone = phone
+    bank = (getattr(quote, "factory_bank", None) or "").strip()
+    if bank:
+        po.supplier_bank = bank
+    account = (getattr(quote, "factory_account", None) or "").strip()
+    if account:
+        po.supplier_account = account
+    address = (getattr(quote, "factory_address", None) or "").strip()
+    if address and not (po.shipping_warehouse or "").strip():
+        po.shipping_warehouse = address
 
 
 def assign_po_purchaser(po: PurchaseOrder, so: Optional[Order], user: User, db: Session) -> None:
@@ -254,6 +343,7 @@ def ensure_po_from_sales_order(db: Session, order: Order, user: User) -> Purchas
         purchaser_id=infer_po_purchaser_id(order),
         total=0,
     )
+    apply_quote_factory(po, getattr(order, "quote", None))
     db.add(po)
     db.flush()
     if order.lines:
@@ -347,9 +437,9 @@ def serialize_po(po: PurchaseOrder, user: Optional[User] = None) -> dict:
             and is_purchase_owner(user, po)
         ),
         "can_logistics": bool(
-            user and user.role == "purchase" and po.status == "in_progress" and is_purchase_owner(user, po)
+            user and user.role == "purchase" and po.status in LOGISTICS_STATUSES and is_purchase_owner(user, po)
         ),
-        "can_advance": bool(user and user.role == "purchase" and po.status in PO_NEXT and is_purchase_owner(user, po)),
+        "can_advance": bool(user and user.role == "purchase" and po_next_status(po) and is_purchase_owner(user, po)),
         "can_delete": bool(user and user.role == "admin"),
         "lines": [
             {
@@ -386,6 +476,7 @@ def serialize_po(po: PurchaseOrder, user: Optional[User] = None) -> dict:
             for lg in sorted(po.logs, key=lambda x: x.id)
         ],
         "steps": [{"key": k, "label": PO_STATUS[k]} for k in PO_STEPS],
+        "flow_rows": po_flow_rows(),
     }
     logi = [lg for lg in data["logs"] if lg["kind"] == "logistics"]
     data["latest_logistics"] = logi[-1] if logi else None
@@ -417,6 +508,7 @@ def list_pos(
     sales_order_id: Optional[int] = None,
     date_from: str = "",
     date_to: str = "",
+    person: str = "",
 ):
     if user.role not in ("admin", "purchase", "finance", "sales"):
         raise HTTPException(403, "没有权限")
@@ -433,6 +525,7 @@ def list_pos(
     if sales_order_id:
         q = q.filter(PurchaseOrder.sales_order_id == sales_order_id)
     q = apply_doc_date_range(q, PurchaseOrder, date_from, date_to)
+    q = apply_person_name(q, PurchaseOrder.purchaser_id, PurchaseOrder.creator_id, name=person)
     rows = q.order_by(PurchaseOrder.id.desc()).all()
     return [
         {
@@ -475,6 +568,8 @@ def po_meta(db: Annotated[Session, Depends(get_db)], user: Annotated[User, Depen
         "warehouses": list(PO_WAREHOUSES),
         "settle_methods": ["现金", "银行转账", "电汇", "支付宝", "微信", "支票"],
         "accounts": ["现金", "基本户", "支付宝", "微信"],
+        "steps": [{"key": k, "label": PO_STATUS[k]} for k in PO_STEPS],
+        "flow_rows": po_flow_rows(),
     }
 
 
@@ -702,16 +797,16 @@ def update_logistics(
     po = load_po(db, po_id)
     if not po or not is_purchase_owner(user, po):
         raise HTTPException(404, "采购单不存在")
-    if po.status != "in_progress":
-        raise HTTPException(400, "仅进行中可更新物流")
+    if po.status not in LOGISTICS_STATUSES:
+        raise HTTPException(400, "当前环节不可更新物流")
     if not (body.logistics_company or body.tracking_no or body.comment):
         raise HTTPException(400, "请填写物流信息或说明")
     db.add(
         PurchaseOrderLog(
             purchase_order_id=po.id,
             kind="logistics",
-            from_status="in_progress",
-            to_status="in_progress",
+            from_status=po.status,
+            to_status=po.status,
             logistics_company=body.logistics_company.strip(),
             tracking_no=body.tracking_no.strip(),
             comment=body.comment.strip() or "更新物流",
@@ -731,10 +826,9 @@ def advance_po(
     po = load_po(db, po_id)
     if not po or user.role != "purchase" or not is_purchase_owner(user, po):
         raise HTTPException(404, "采购单不存在")
-    nxt = PO_NEXT.get(po.status)
+    nxt = po_next_status(po)
     if not nxt:
         raise HTTPException(400, "当前状态不可推进")
-    labels = {"received": "确认收货", "inbound": "确认入库", "accepted": "确认验收", "done": "验收成功"}
     prev = po.status
     po.status = nxt
     db.add(
@@ -743,7 +837,7 @@ def advance_po(
             kind="status",
             from_status=prev,
             to_status=nxt,
-            comment=labels.get(nxt, nxt),
+            comment=ADVANCE_LABELS.get(nxt, nxt),
             operator_id=user.id,
         )
     )
@@ -766,7 +860,7 @@ def advance_po(
                     from_status="fulfilling",
                     to_status="done",
                     operator_id=user.id,
-                    comment="采购验收成功，销售订单完成",
+                    comment="采购验货完成，销售订单完成",
                 )
             )
     db.commit()

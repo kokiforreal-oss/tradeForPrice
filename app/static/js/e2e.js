@@ -1,4 +1,13 @@
-const E2E_NAME_KEYS = new Set(["customer_name", "supplier_name", "partner_name", "supplier_bank", "supplier_account"]);
+const E2E_NAME_KEYS = new Set([
+  "customer_name",
+  "supplier_name",
+  "partner_name",
+  "supplier_bank",
+  "supplier_account",
+  "factory_name",
+  "factory_bank",
+  "factory_account",
+]);
 const E2E_MONEY_KEYS = new Set([
   "total",
   "amount",

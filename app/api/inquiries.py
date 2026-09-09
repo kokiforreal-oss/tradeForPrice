@@ -14,7 +14,7 @@ from app.core.auth import get_current_user, require_roles
 from app.db.database import get_db
 from app.db.models import Inquiry, InquiryLine, Order, OrderLog, Product, Quote, QuoteLine, User, utcnow
 from app.core.e2e import MoneyIn, money
-from app.core.utils import apply_created_at_range, fmt_dt, next_no, to_float
+from app.core.utils import apply_created_at_range, apply_person_name, fmt_dt, next_no, to_float
 
 router = APIRouter(prefix="/api/inquiries", tags=["inquiries"])
 
@@ -64,6 +64,12 @@ class QuoteLineIn(BaseModel):
 class QuoteIn(BaseModel):
     note: str = ""
     lead_days: int = 0
+    factory_name: str = ""
+    factory_contact: str = ""
+    factory_phone: str = ""
+    factory_address: str = ""
+    factory_bank: str = ""
+    factory_account: str = ""
     lines: List[QuoteLineIn]
 
 
@@ -125,6 +131,26 @@ def can_view(user: User, inq: Inquiry) -> bool:
     return can_view_inquiry(user, inq)
 
 
+def inquiry_open_for_quote(inq: Inquiry) -> bool:
+    if inq.order or inq.status in DONE_STATUSES:
+        return False
+    return inq.status in ("pending_quote", "quoted", "selling")
+
+
+def can_submit_quote(user: User, inq: Inquiry) -> bool:
+    return user.role in ("admin", "purchase") and inquiry_open_for_quote(inq)
+
+
+def inquiry_can_delete(inq: Inquiry, user: User) -> bool:
+    if not user:
+        return False
+    if user.role == "admin":
+        return True
+    if user.role == "sales" and inq.creator_id == user.id and inq.order is None:
+        return True
+    return False
+
+
 def serialize_inquiry(inq: Inquiry, user: User) -> dict:
     show_cost = user.role in ("admin", "purchase")
     lines = []
@@ -162,6 +188,12 @@ def serialize_inquiry(inq: Inquiry, user: User) -> dict:
                 "purchaser_name": q.purchaser.name if q.purchaser else "",
                 "note": q.note,
                 "lead_days": q.lead_days,
+                "factory_name": getattr(q, "factory_name", "") or "",
+                "factory_contact": getattr(q, "factory_contact", "") or "",
+                "factory_phone": getattr(q, "factory_phone", "") or "",
+                "factory_address": getattr(q, "factory_address", "") or "",
+                "factory_bank": getattr(q, "factory_bank", "") or "",
+                "factory_account": getattr(q, "factory_account", "") or "",
                 "total": to_float(q.total),
                 "round_no": getattr(q, "round_no", 1) or 1,
                 "created_at": fmt_dt(q.created_at),
@@ -197,7 +229,7 @@ def serialize_inquiry(inq: Inquiry, user: User) -> dict:
         "created_at": fmt_dt(inq.created_at),
         "lines": lines,
         "quotes": quotes,
-        "can_quote": user.role == "purchase" and inq.status in ("pending_quote", "quoted"),
+        "can_quote": can_submit_quote(user, inq),
         "can_select": user.role == "sales"
         and inq.creator_id == user.id
         and inq.status in ("quoted", "selling")
@@ -220,7 +252,7 @@ def serialize_inquiry(inq: Inquiry, user: User) -> dict:
         and inq.status == "selling"
         and inq.order is None,
         "can_edit": user.role == "sales" and inq.creator_id == user.id and inq.status == "pending_quote" and not inq.quotes,
-        "can_delete": user.role == "admin",
+        "can_delete": inquiry_can_delete(inq, user),
         "close_reason_options": list(CLOSE_REASONS),
     }
 
@@ -280,6 +312,7 @@ def list_inquiries(
     status: str = "",
     date_from: str = "",
     date_to: str = "",
+    person: str = "",
 ):
     if user.role not in ("admin", "sales", "purchase", "finance"):
         raise HTTPException(403, "没有权限")
@@ -294,6 +327,7 @@ def list_inquiries(
     elif status:
         q = q.filter(Inquiry.status == status)
     q = apply_created_at_range(q, Inquiry.created_at, date_from, date_to)
+    q = apply_person_name(q, Inquiry.creator_id, name=person)
     rows = q.order_by(Inquiry.id.desc()).all()
     return [
         {
@@ -307,6 +341,7 @@ def list_inquiries(
             "quote_count": len(r.quotes) if r.quotes else 0,
             "order_no": r.order.no if r.order else None,
             "order_id": r.order.id if r.order else None,
+            "can_delete": inquiry_can_delete(r, user),
             "created_at": fmt_dt(r.created_at),
         }
         for r in rows
@@ -386,15 +421,16 @@ def create_quote(
     inquiry_id: int,
     body: QuoteIn,
     db: Annotated[Session, Depends(get_db)],
-    user: Annotated[User, Depends(require_roles("purchase"))],
+    user: Annotated[User, Depends(require_roles("admin", "purchase"))],
 ):
     inq = load_inquiry(db, inquiry_id)
     if not inq:
         raise HTTPException(404, "询价单不存在")
-    if inq.status not in ("pending_quote", "quoted"):
-        if inq.status in ("selling", "won", "closed"):
-            raise HTTPException(400, "该询价单已进入销售流程，采购不可再报价")
-        raise HTTPException(400, "当前状态不可报价")
+    if not inquiry_open_for_quote(inq):
+        raise HTTPException(400, "销售已选用报价并提交审核，或询价已结束，不能再报价")
+    factory_name = (body.factory_name or "").strip()
+    if not factory_name:
+        raise HTTPException(400, "请填写交付工厂")
     line_ids = {ln.id for ln in inq.lines}
     if {x.inquiry_line_id for x in body.lines} != line_ids:
         raise HTTPException(400, "报价必须覆盖询价单全部明细")
@@ -403,6 +439,12 @@ def create_quote(
         purchaser_id=user.id,
         note=body.note,
         lead_days=body.lead_days or 0,
+        factory_name=factory_name,
+        factory_contact=(body.factory_contact or "").strip(),
+        factory_phone=(body.factory_phone or "").strip(),
+        factory_address=(body.factory_address or "").strip(),
+        factory_bank=(body.factory_bank or "").strip(),
+        factory_account=(body.factory_account or "").strip(),
         round_no=getattr(inq, "quote_round", 1) or 1,
     )
     db.add(quote)
@@ -415,7 +457,8 @@ def create_quote(
         total += amount
         db.add(QuoteLine(quote_id=quote.id, inquiry_line_id=ln.inquiry_line_id, unit_price=price, amount=amount))
     quote.total = total
-    inq.status = "quoted"
+    if inq.status != "selling":
+        inq.status = "quoted"
     db.commit()
     return serialize_inquiry(load_inquiry(db, inq.id), user)
 
@@ -528,12 +571,16 @@ def requote_inquiry(
 def delete_inquiry(
     inquiry_id: int,
     db: Annotated[Session, Depends(get_db)],
-    _: Annotated[User, Depends(require_roles("admin"))],
+    user: Annotated[User, Depends(get_current_user)],
 ):
     inq = load_inquiry(db, inquiry_id)
     if not inq:
         raise HTTPException(404, "询价单不存在")
+    if not inquiry_can_delete(inq, user):
+        raise HTTPException(403, "没有权限删除该询价单")
     if inq.order:
+        if user.role != "admin":
+            raise HTTPException(400, "已生成销售订单，不能删除")
         db.delete(inq.order)
         db.flush()
     inq.selected_quote_id = None

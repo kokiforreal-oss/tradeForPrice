@@ -1,19 +1,33 @@
 <!DOCTYPE html>
-<html lang="zh-CN" data-build="20260908142457">
+<html lang="zh-CN" data-build="20260908175135">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=1280" />
     <title>拉法国际外贸系统</title>
+    <script>
+      (function () {
+        try {
+          var t = localStorage.getItem("lafatech-theme");
+          if (t !== "dark" && t !== "light") {
+            t = window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+          }
+          document.documentElement.setAttribute("data-theme", t);
+        } catch (e) {}
+      })();
+    </script>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
       href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+SC:wght@400;500;600;700&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="/static/css/app.css?v=20260908142457" />
+    <link rel="stylesheet" href="/static/css/app.css?v=20260908175135" />
   </head>
   <body>
     <div id="login-page" class="login-wrap">
+      <div class="login-theme">
+        <button type="button" class="ghost theme-toggle" data-theme-toggle>深色</button>
+      </div>
       <div class="login-stage">
         <div class="login-aside">
           <div class="login-aside-glow" aria-hidden="true"></div>
@@ -57,13 +71,14 @@
           </div>
           <div class="page-head-right">
             <div id="who"></div>
+            <button type="button" class="ghost theme-toggle" data-theme-toggle>深色</button>
             <button type="button" id="logout" class="ghost">退出</button>
           </div>
         </header>
         <section id="view"></section>
       </div>
     </div>
-    <script src="/static/js/e2e.js?v=20260908142457"></script>
-    <script src="/static/js/app.js?v=20260908142457"></script>
+    <script src="/static/js/e2e.js?v=20260908175135"></script>
+    <script src="/static/js/app.js?v=20260908175135"></script>
   </body>
 </html>

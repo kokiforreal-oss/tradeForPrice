@@ -76,6 +76,21 @@ def apply_created_at_range(query, column, date_from: str = "", date_to: str = ""
     return query
 
 
+def apply_person_name(query, *user_id_columns, name: str = ""):
+    """按用户姓名模糊筛选，可传入多个外键列（销售、采购、创建人等）。"""
+    from sqlalchemy import exists, or_
+
+    from app.db.models import User
+
+    kw = (name or "").strip()
+    if not kw or not user_id_columns:
+        return query
+    escaped = kw.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    like = "%" + escaped + "%"
+    conds = [exists().where(User.id == col, User.name.like(like, escape="\\")) for col in user_id_columns]
+    return query.filter(or_(*conds))
+
+
 def apply_doc_date_range(query, model, date_from: str = "", date_to: str = ""):
     """单据日期优先，没有则用创建日。"""
     from sqlalchemy import Date, cast, func

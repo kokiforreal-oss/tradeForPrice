@@ -1,6 +1,35 @@
 const $ = (sel, el = document) => el.querySelector(sel);
 const $$ = (sel, el = document) => [...el.querySelectorAll(sel)];
 
+const THEME_KEY = "lafatech-theme";
+function themeValue() {
+  return document.documentElement.getAttribute("data-theme") === "dark" ? "dark" : "light";
+}
+function syncThemeButtons() {
+  const dark = themeValue() === "dark";
+  $$("[data-theme-toggle]").forEach((btn) => {
+    btn.textContent = dark ? "浅色" : "深色";
+    btn.setAttribute("aria-pressed", dark ? "true" : "false");
+    btn.title = dark ? "切换浅色模式" : "切换深色模式";
+  });
+}
+function setTheme(theme, persist) {
+  const t = theme === "dark" ? "dark" : "light";
+  document.documentElement.setAttribute("data-theme", t);
+  if (persist) {
+    try {
+      localStorage.setItem(THEME_KEY, t);
+    } catch {}
+  }
+  syncThemeButtons();
+}
+function initTheme() {
+  $$("[data-theme-toggle]").forEach((btn) => {
+    btn.addEventListener("click", () => setTheme(themeValue() === "dark" ? "light" : "dark", true));
+  });
+  syncThemeButtons();
+}
+
     const PRESS_SEL = "a.card, .card, a.btn, button:not(.tl-acc-head), nav a, table a, a.name-link, .quote-box, .cat-row, .po-acc-toggle, .icon-btn, .cat-all, .cat-rail, a.todo-row, a.todo-card";
 let pressClearTimer = 0;
 function clearPress(immediate) {
@@ -57,8 +86,12 @@ const PO = {
   pending_audit: "待审核",
   in_progress: "进行中",
   received: "收货",
-  inbound: "入库",
-  accepted: "验收",
+  stuffed: "国内运输",
+  domestic_inbound: "国内入库",
+  domestic_accepted: "国内验货",
+  overseas_transit: "国外运输",
+  inbound: "国外入库",
+  accepted: "国外验货",
   done: "已完成",
 };
 const INCOTERMS = ["EXW", "FCA", "FOB", "CFR", "CIF", "CPT", "CIP", "DAP", "DPU", "DDP"];
@@ -179,7 +212,11 @@ function navItems() {
     biz.push({ href: "#/purchase-orders", label: "采购订单", ico: "⛴" });
   }
   if (["admin", "finance"].includes(me.role)) {
-    biz.push({ href: "#/finance", label: "财务管理", ico: "¥" });
+    biz.push({
+      href: "#/finance",
+      label: "财务管理",
+      ico: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="3" width="14" height="18" rx="2"/><path d="M8 7h8M9 12h1.5M13.5 12H15M9 16h1.5M13.5 16H15"/></svg>`,
+    });
   }
   if (biz.length) {
     all.push({ group: "业务" });
@@ -343,14 +380,18 @@ function listFilterQs() {
   if (p.get("status")) q.set("status", p.get("status"));
   if (p.get("from")) q.set("date_from", p.get("from"));
   if (p.get("to")) q.set("date_to", p.get("to"));
+  if (p.get("person")) q.set("person", p.get("person"));
   const s = q.toString();
   return s ? "?" + s : "";
 }
 
 function dateRangeFields() {
   const p = parseHash().params;
-  return `<label class="doc-range">从<input type="date" name="from" value="${esc(p.get("from") || "")}"></label>
-    <label class="doc-range">到<input type="date" name="to" value="${esc(p.get("to") || "")}"></label>`;
+  const from = p.get("from") || "";
+  const to = p.get("to") || "";
+  return `<label class="doc-range">从<input type="date" name="from" class="${from ? "" : "is-empty"}" value="${esc(from)}"></label>
+    <label class="doc-range">到<input type="date" name="to" class="${to ? "" : "is-empty"}" value="${esc(to)}"></label>
+    <input type="search" name="person" placeholder="按人名筛选" value="${esc(p.get("person") || "")}" autocomplete="off">`;
 }
 
 function bindDocListFilter(baseHash) {
@@ -359,12 +400,20 @@ function bindDocListFilter(baseHash) {
     const status = ($("#view select[name=status]") || {}).value || "";
     const from = ($("#view input[name=from]") || {}).value || "";
     const to = ($("#view input[name=to]") || {}).value || "";
+    const person = ($("#view input[name=person]") || {}).value || "";
     if (status) q.set("status", status);
     if (from) q.set("from", from);
     if (to) q.set("to", to);
+    if (person.trim()) q.set("person", person.trim());
     const s = q.toString();
     location.hash = s ? `${baseHash}?${s}` : baseHash;
   };
+  $$("#view input[type=date]").forEach((el) => {
+    const sync = () => el.classList.toggle("is-empty", !el.value);
+    sync();
+    el.addEventListener("input", sync);
+    el.addEventListener("change", sync);
+  });
   const form = $("#view .page-toolbar");
   if (form && form.tagName === "FORM") {
     form.onsubmit = (e) => {
@@ -399,7 +448,7 @@ async function viewHome() {
       : me.role === "sales"
         ? "已报价询价单、审核驳回待处理的单据、待填写合同会显示在这里。"
         : me.role === "purchase"
-          ? "待报价询价单、待填写及审核驳回的采购单会显示在这里。"
+          ? "待报价及可继续报价的询价单、待填写及审核驳回的采购单会显示在这里。"
           : me.role === "finance"
             ? "采购单审核通过后生成的待填写付款单会显示在这里。"
             : "当前角色没有流程待办。";
@@ -911,9 +960,8 @@ async function viewInquiries() {
   const status = parseHash().params.get("status") || "";
   const rows = await api("/api/inquiries" + listFilterQs());
   const canCreate = me.role === "sales";
-  const canDelete = me.role === "admin";
   $("#view").innerHTML = `
-    <div class="inq-page">
+    <div class="doc-page inq-page">
     <form class="toolbar page-toolbar">
       <select name="status">
         <option value="">全部状态</option>
@@ -940,7 +988,7 @@ async function viewInquiries() {
             <td>${esc(r.creator_name)}</td>
             <td class="row-actions">
               <a class="btn" href="#/inquiries/${r.id}">查看</a>
-              ${canDelete ? `<button class="danger" data-del-inq="${r.id}">删除</button>` : ""}
+              ${r.can_delete ? `<button class="danger" data-del-inq="${r.id}">删除</button>` : ""}
             </td>
           </tr>`
                 )
@@ -953,7 +1001,7 @@ async function viewInquiries() {
   bindDocListFilter("#/inquiries");
   $$("[data-del-inq]").forEach((b) => {
     b.onclick = async () => {
-      if (!confirm("确认删除该询价单？关联订单会一并删除。")) return;
+      if (!confirm("确认删除该询价单？")) return;
       await api("/api/inquiries/" + b.dataset.delInq, { method: "DELETE" });
       viewInquiries();
     };
@@ -974,9 +1022,9 @@ async function viewInquiryNew() {
 function inquiryFormHtml(inq) {
   const lines = inq?.lines?.length ? inq.lines : [{ product_id: "", quantity: 1, target_price: "", remark: "" }];
   return `
-    <form id="inq-form" class="inq-page">
+    <form id="inq-form" class="doc-page inq-page">
       <div class="panel">
-        <h3>客户信息</h3>
+        <h3>询价单</h3>
         <div class="form-grid inq-form">
           <label>客户名称<input name="customer_name" required value="${esc(inq?.customer_name || "")}"></label>
           <label>联系人<input name="contact_name" value="${esc(inq?.contact_name || "")}"></label>
@@ -989,9 +1037,7 @@ function inquiryFormHtml(inq) {
           </select></label>
           <label class="full">需求说明<textarea name="requirement" placeholder="交货要求、包装、认证等">${esc(inq?.requirement || "")}</textarea></label>
         </div>
-      </div>
-      <div class="panel">
-        <h3>产品明细</h3>
+        <h4 class="po-subhead">产品明细</h4>
         <p class="muted section-lead">至少一行。可从产品库选择，也可直接输入产品名称。</p>
         <div class="table-wrap"><table class="line-table">
           <thead><tr><th>产品</th><th>规格</th><th>单位</th><th>数量</th><th>客户目标价</th><th>备注</th><th></th></tr></thead>
@@ -1251,6 +1297,12 @@ async function viewInquiryDetail(id) {
             .join("");
           const round = q.round_no || 1;
           const rr = reasonByRound[round];
+          const factoryBits = [
+            q.factory_name ? `<div><span>工厂</span><b>${esc(q.factory_name)}</b></div>` : "",
+            q.factory_contact ? `<div><span>联系人</span><b>${esc(q.factory_contact)}</b></div>` : "",
+            q.factory_phone ? `<div><span>电话</span><b>${esc(q.factory_phone)}</b></div>` : "",
+            q.factory_address ? `<div><span>交货地址</span><b>${esc(q.factory_address)}</b></div>` : "",
+          ].filter(Boolean).join("");
           return `<div class="quote-box ${q.selected ? "selected" : ""}">
         <div class="quote-head">
           <div>
@@ -1258,13 +1310,14 @@ async function viewInquiryDetail(id) {
             ${q.selected ? pill("won", "已选用") : ""}
           </div>
           <div class="quote-meta">
-            <span>采购 <b>${esc(q.purchaser_name)}</b></span>
+            <span>报价人 <b>${esc(q.purchaser_name)}</b></span>
             <span>交期 <b>${q.lead_days} 天</b></span>
             <span>合计 <b>${q.total} ${esc(inq.currency)}</b></span>
             <span>${esc(fmtDocTime(q.created_at))}</span>
           </div>
         </div>
         ${rr ? `<p class="muted quote-note">本轮询价原因：${esc(rr.reason)}</p>` : ""}
+        ${factoryBits ? `<div class="kv kv-wide quote-factory">${factoryBits}</div>` : ""}
         ${q.note ? `<p class="muted quote-note">${esc(q.note)}</p>` : ""}
         <div class="table-wrap"><table><thead><tr><th>产品</th><th>数量</th><th>单价</th><th>金额</th></tr></thead><tbody>${rows}</tbody></table></div>
         ${
@@ -1279,37 +1332,49 @@ async function viewInquiryDetail(id) {
 
   let quoteForm = "";
   if (inq.can_quote) {
-    quoteForm = `<form id="quote-form" class="panel">
+    const mine = (inq.quotes || [])
+      .filter((q) => String(q.purchaser_id) === String(me.id) && (q.round_no || 1) === (inq.quote_round || 1))
+      .sort((a, b) => b.id - a.id)[0];
+    quoteForm = `<form id="quote-form" class="panel quote-submit">
       <h3>提交报价${inq.quote_round > 1 ? ` · 第 ${inq.quote_round} 轮` : ""}</h3>
       ${
         inq.requote_reason
           ? `<div class="req-block"><span>销售二次询价原因</span>${esc(inq.requote_reason)}</div>`
-          : `<p class="muted section-lead">先填写产品单价，交期和说明可选填。提交后销售即可选择报价。</p>`
+          : `<p class="muted section-lead">多名采购和管理员可同时报价。请填写交付工厂与产品单价；销售尚未提交审核前都可以继续报价。</p>`
       }
+      <h4 class="po-subhead">交付工厂</h4>
+      <div class="form-grid inq-form quote-factory-form">
+        <label>工厂名称<input name="factory_name" required value="${esc(mine?.factory_name || "")}" placeholder="必填"></label>
+        <label>联系人<input name="factory_contact" value="${esc(mine?.factory_contact || "")}"></label>
+        <label>联系电话<input name="factory_phone" value="${esc(mine?.factory_phone || "")}"></label>
+        <label>交期（天）<input name="lead_days" type="number" min="0" value="${mine?.lead_days ?? 15}"></label>
+        <label class="full">交货地址<input name="factory_address" value="${esc(mine?.factory_address || "")}" placeholder="工厂或仓库地址"></label>
+      </div>
+      <h4 class="po-subhead">商品报价</h4>
       <div class="table-wrap"><table><thead><tr><th>产品</th><th>数量</th><th>单价（${esc(inq.currency)}）</th></tr></thead>
       <tbody>
         ${inq.lines
-          .map(
-            (l) => `<tr>
+          .map((l) => {
+            const prev = mine?.lines?.find((ql) => String(ql.inquiry_line_id) === String(l.id));
+            return `<tr>
             <td>${esc(l.sku)} ${esc(l.product_name)}</td><td>${l.quantity} ${esc(l.unit)}</td>
-            <td class="col-price"><input name="price-${l.id}" type="number" step="0.01" min="0" required placeholder="必填"></td>
-          </tr>`
-          )
+            <td class="col-price"><input name="price-${l.id}" type="number" step="0.01" min="0" required placeholder="必填" value="${prev?.unit_price ?? ""}"></td>
+          </tr>`;
+          })
           .join("")}
       </tbody></table></div>
-      <div class="form-grid inq-form" style="margin-top:18px">
-        <label>交期（天）<input name="lead_days" type="number" value="15"></label>
-        <label class="full">说明<textarea name="note" placeholder="选填"></textarea></label>
+      <div class="form-grid inq-form quote-note-grid">
+        <label class="full">说明<textarea name="note" rows="2" placeholder="选填">${esc(mine?.note || "")}</textarea></label>
       </div>
       <div class="row-actions form-footer"><button type="submit">提交报价</button></div>
     </form>`;
   }
 
   $("#view").innerHTML = `
-    <div class="inq-page">
-    <div class="panel">
+    <div class="doc-page inq-page">
+    <div class="panel inq-info-panel">
       <div class="detail-head">
-        <h3>询价信息</h3>
+        <h3>询价单</h3>
         ${pill(inq.status, inq.status_label)}
       </div>
       <div class="kv kv-wide inq-kv">
@@ -1348,9 +1413,7 @@ async function viewInquiryDetail(id) {
           : ""
       }
       ${inq.close_reason ? `<div class="req-block"><span>结束原因</span>${esc(inq.close_reason)}</div>` : ""}
-    </div>
-    <div class="panel">
-      <h3>产品明细</h3>
+      <h4 class="po-subhead">产品明细</h4>
       <div class="table-wrap"><table>
         <thead><tr><th>产品ID</th><th>产品</th><th>规格</th><th>数量</th><th>目标价</th></tr></thead>
         <tbody>
@@ -1365,15 +1428,11 @@ async function viewInquiryDetail(id) {
     </div>
     <div class="panel">
       <h3>采购报价</h3>
+      <p class="muted section-lead">同一询价单可有多份报价。销售选用并提交审核前，采购和管理员都可以继续报价。</p>
       <div class="quote-list">${quotesHtml}</div>
     </div>
     ${quoteForm}
     ${sellingResultHtml(inq)}
-    ${
-      inq.can_delete
-        ? `<div class="panel"><div class="row-actions"><button class="danger" id="del-inq">删除询价单</button></div></div>`
-        : ""
-    }
     </div>`;
 
   $$("[data-sel]").forEach((b) => {
@@ -1392,21 +1451,20 @@ async function viewInquiryDetail(id) {
       }));
       await api(`/api/inquiries/${id}/quotes`, {
         method: "POST",
-        json: { note: e.target.note.value, lead_days: Number(e.target.lead_days.value || 0), lines },
+        json: {
+          note: e.target.note.value,
+          lead_days: Number(e.target.lead_days.value || 0),
+          factory_name: e.target.factory_name.value,
+          factory_contact: e.target.factory_contact.value,
+          factory_phone: e.target.factory_phone.value,
+          factory_address: e.target.factory_address.value,
+          lines,
+        },
       });
-      location.hash = "#/inquiries";
-      route();
+      viewInquiryDetail(id);
     };
   }
   bindSellingActions(id);
-  if ($("#del-inq")) {
-    $("#del-inq").onclick = async () => {
-      if (!confirm("确认删除该询价单？关联订单会一并删除。")) return;
-      await api("/api/inquiries/" + id, { method: "DELETE" });
-      location.hash = "#/inquiries";
-      route();
-    };
-  }
 }
 
 async function viewOrders() {
@@ -1414,6 +1472,7 @@ async function viewOrders() {
   const status = parseHash().params.get("status") || "";
   const rows = await api("/api/orders" + listFilterQs());
   $("#view").innerHTML = `
+    <div class="doc-page">
     <form class="toolbar page-toolbar">
       <select name="status">
         <option value="">全部状态</option>
@@ -1450,7 +1509,8 @@ async function viewOrders() {
             : `<tr><td colspan="7" class="empty-hint muted">暂无销售订单</td></tr>`
         }
       </tbody>
-    </table></div>`;
+    </table></div>
+    </div>`;
   bindDocListFilter("#/orders");
   $$("[data-del-ord]").forEach((b) => {
     b.onclick = async () => {
@@ -1490,7 +1550,7 @@ function soSheetHtml(o, meta) {
   const methods = (meta.settle_methods || []).map((m) => `<option ${m === (o.settle_method || "") ? "selected" : ""}>${esc(m)}</option>`).join("");
   const accounts = (meta.accounts || []).map((m) => `<option ${m === (o.pay_account || "") ? "selected" : ""}>${esc(m)}</option>`).join("");
   return `
-    <form id="so-fill" class="po-sheet">
+    <form id="so-fill" class="doc-page po-sheet">
       <div class="voucher-toolbar">
         <a class="btn ghost" href="#/orders">放弃</a>
         <button type="button" class="ghost" id="so-draft">保存草稿</button>
@@ -1768,22 +1828,58 @@ function orderInfoPanel(o) {
     </div>`;
 }
 
-function flowDiagram(o) {
-  const idx = o.steps.findIndex((s) => s.key === o.status);
-  return `<div class="flow-track">
-    ${o.steps
-      .map((s, i) => {
-        const cls = i < idx ? "done" : i === idx ? "current" : "todo";
-        const state = i < idx ? "已完成" : i === idx ? "进行中" : "未开始";
-        return `<div class="flow-item ${cls}">
+function flowItemHtml(s, i, idx, showBar, extraCls = "", style = "") {
+  const cls = i < idx ? "done" : i === idx ? "current" : "todo";
+  const state = i < idx ? "已完成" : i === idx ? "进行中" : "未开始";
+  return `<div class="flow-item ${cls}${extraCls ? " " + extraCls : ""}"${style ? ` style="${style}"` : ""}>
           <div class="flow-dot">${i + 1}</div>
-          ${i < o.steps.length - 1 ? `<div class="flow-bar ${i < idx ? "on" : ""}"></div>` : ""}
+          ${showBar ? `<div class="flow-bar ${i < idx ? "on" : ""}"></div>` : ""}
           <div class="flow-name">${esc(s.label)}</div>
           <div class="flow-state">${state}</div>
         </div>`;
-      })
-      .join("")}
+}
+
+function flowDiagram(o) {
+  const statusKey = o.status === "received" ? "inbound" : o.status;
+  const idx = o.steps.findIndex((s) => s.key === statusKey);
+  if (o.flow_rows && o.flow_rows.length >= 2) {
+    const indexByKey = Object.fromEntries((o.steps || []).map((s, i) => [s.key, i]));
+    const domestic = o.flow_rows[0].items || [];
+    const overseas = o.flow_rows[1].items || [];
+    const forkKey = o.flow_rows[1].fork || "in_progress";
+    const forkCol = domestic.findIndex((s) => s.key === forkKey) + 1;
+    return `<div class="flow-dual" style="--fork-col:${Math.max(forkCol, 1)}">
+      ${domestic
+        .map((s, j) =>
+          flowItemHtml(s, indexByKey[s.key] ?? j, idx, j < domestic.length - 1, s.key === forkKey ? "junction" : "")
+        )
+        .join("")}
+      ${overseas
+        .map((s, j) =>
+          flowItemHtml(
+            s,
+            indexByKey[s.key] ?? domestic.length + j,
+            idx,
+            j < overseas.length - 1,
+            "lane-oversea"
+          )
+        )
+        .join("")}
+    </div>`;
+  }
+  return `<div class="flow-track">
+    ${(o.steps || []).map((s, i) => flowItemHtml(s, i, idx, i < o.steps.length - 1)).join("")}
   </div>`;
+}
+
+function poFlowPanelHtml(o) {
+  return `<div class="panel flow-panel">
+      <div class="flow-head">
+        <h3 class="sec-title">采购业务流程双轨图</h3>
+        <span class="flow-legend">路线类别：国内采购 (1-6) / 国外直发 (7-10)</span>
+      </div>
+      ${flowDiagram(o)}
+    </div>`;
 }
 
 function stageFormHtml(o) {
@@ -1900,6 +1996,45 @@ function validateContractForm(form) {
   return true;
 }
 
+function poAdvanceAction(o) {
+  const map = {
+    in_progress: { title: "国内运输", desc: "工厂发货后走国内运输，确认后再入库验货。", btn: "确认国内运输" },
+    stuffed: { title: "国内入库", desc: "国内运输完成后确认入库。", btn: "确认入库" },
+    domestic_inbound: { title: "国内验货", desc: "国内入库后确认验货。", btn: "确认验货" },
+    domestic_accepted: { title: "国外运输", desc: "国内验货完成后进入国外运输。", btn: "确认国外运输" },
+    overseas_transit: { title: "国外入库", desc: "国外运输到达后确认入库。", btn: "确认入库" },
+    inbound: { title: "国外验货", desc: "国外入库后确认验货。", btn: "确认验货" },
+    received: { title: "国外入库", desc: "确认收货后办理入库。", btn: "确认入库" },
+    accepted: { title: "完成", desc: "国外验货无误后，采购单进入已完成。", btn: "确认完成" },
+  };
+  return map[o.status] || null;
+}
+
+function poFulfillPanelHtml(o) {
+  if (!o.can_logistics && !o.can_advance) return "";
+  const action = poAdvanceAction(o);
+  const logiForm = o.can_logistics
+    ? `<form id="po-logi" style="margin-top:8px">
+        <div class="form-grid inq-form">
+          <label>物流公司<input name="logistics_company"></label>
+          <label>提单/运单号<input name="tracking_no"></label>
+          <label class="full">说明<input name="comment" placeholder="例如国内提货 / 船名航次 / 预计到港"></label>
+        </div>
+        <div class="row-actions form-footer">
+          <button type="submit">添加更新</button>
+          ${o.can_advance && action ? `<button type="button" id="po-adv">${esc(action.btn)}</button>` : ""}
+        </div>
+      </form>`
+    : o.can_advance && action
+      ? `<p class="muted advance-desc">${esc(action.desc)}</p><div class="row-actions form-footer"><button type="button" id="po-adv">${esc(action.btn)}</button></div>`
+      : "";
+  return `<div class="panel">
+    <h3>${esc(action ? action.title : "物流")}</h3>
+    ${o.can_logistics ? `<p class="muted advance-desc">${esc(action?.desc || "登记物流进度。")}</p>` : ""}
+    ${logiForm}
+  </div>`;
+}
+
 function groupPoLogs(logs) {
   const items = [];
   const pending = [];
@@ -1912,7 +2047,7 @@ function groupPoLogs(logs) {
     }
     const item = { lg, logistics: [] };
     items.push(item);
-    if (lg.to_status === "in_progress") {
+    if (["in_progress", "stuffed", "domestic_inbound", "overseas_transit", "inbound"].includes(lg.to_status)) {
       lastProgress = item;
       if (pending.length) {
         lastProgress.logistics.push(...pending);
@@ -1993,6 +2128,7 @@ async function viewOrderDetail(id) {
     return;
   }
   $("#view").innerHTML = `
+    <div class="doc-page">
     <div class="panel flow-panel">
       <div class="flow-head">
         <h3>订单状态流转</h3>
@@ -2023,6 +2159,7 @@ async function viewOrderDetail(id) {
             </ol>`
           : `<p class="muted">暂无流转记录</p>`
       }
+    </div>
     </div>`;
   if ($("#incoterm")) {
     $("#incoterm").onchange = syncIncotermFields;
@@ -2076,6 +2213,7 @@ async function viewPurchaseOrders() {
   const status = parseHash().params.get("status") || "";
   const rows = await api("/api/purchase-orders" + listFilterQs());
   $("#view").innerHTML = `
+    <div class="doc-page">
     <form class="toolbar page-toolbar">
       <select name="status">
         <option value="">全部状态</option>
@@ -2109,7 +2247,8 @@ async function viewPurchaseOrders() {
             : `<tr><td colspan="8" class="empty-hint muted">暂无采购单</td></tr>`
         }
       </tbody>
-    </table></div>`;
+    </table></div>
+    </div>`;
   bindDocListFilter("#/purchase-orders");
   $$("[data-del-po]").forEach((b) => {
     b.onclick = async () => {
@@ -2156,28 +2295,34 @@ async function viewPurchaseOrderNew() {
 }
 
 function poSheetHtml(o, orders, meta, isNew) {
+  const flowSrc = o.steps ? o : { status: "pending_fill", steps: meta.steps || [], flow_rows: meta.flow_rows || [] };
   return `
-    <form id="po-fill" class="po-sheet">
+    <form id="po-fill" class="doc-page po-sheet">
+      ${isNew || !o.steps ? poFlowPanelHtml(flowSrc) : ""}
       ${o.audit_remark ? `<p class="muted">上次审核意见：${esc(o.audit_remark)}</p>` : ""}
-      <div class="voucher-toolbar">
-        <a class="btn ghost" href="#/purchase-orders">放弃</a>
-        <button type="button" class="ghost" id="po-draft">保存草稿</button>
-        <button type="submit">提交审核</button>
+      <div class="panel po-fill-panel">
+        <h3 class="sec-title">采购单明细信息</h3>
+        ${poDocFields(o, orders, meta, isNew)}
       </div>
-      <div class="panel voucher-head">
-        ${poHeaderFields(o, orders, meta, isNew)}
-      </div>
-      <div class="panel">
-        <div class="toolbar alloc-toolbar">
-          <button type="button" class="ghost" id="add-po-line">加一行</button>
+      <div class="panel po-lines-panel">
+        <div class="po-lines-head">
+          <h3 class="sec-title">商品明细</h3>
+          <button type="button" class="po-add-line" id="add-po-line">+ 加一行</button>
         </div>
         ${poLinesTable(o.lines && o.lines.length ? o.lines : [{}])}
-        ${poFooterHtml(o, meta)}
+        <div class="po-lines-foot">
+          <span>共 <b id="po-line-count">1</b> 项</span>
+          <span>合计金额 <b id="po-goods-total">0.00</b></span>
+        </div>
       </div>
+      <div class="panel po-remark-panel">
+        <label>备注<input name="remark" value="${esc(o.remark || "")}"></label>
+      </div>
+      ${poFooterHtml(o, meta)}
     </form>`;
 }
 
-function poHeaderFields(o = {}, orders = [], meta = {}, isNew = false) {
+function poDocFields(o = {}, orders = [], meta = {}, isNew = false) {
   const sid = o.sales_order_id || "";
   const purchasers = (meta.purchasers || []).filter((u) => me.role !== "purchase" || String(u.id) === String(me.id));
   const today = meta.today || "";
@@ -2185,11 +2330,6 @@ function poHeaderFields(o = {}, orders = [], meta = {}, isNew = false) {
   return `<div class="form-grid voucher-meta po-head-grid">
     <label>单据日期<input name="doc_date" type="date" required value="${esc(o.doc_date || today)}"></label>
     <label>单据编号<input value="${esc(o.no || "保存后自动生成")}" readonly></label>
-    <label>供应商
-      <input name="supplier_name" value="${esc(o.supplier_name || "")}" placeholder="手动填写" autocomplete="off">
-    </label>
-    <label>开户行<input name="supplier_bank" value="${esc(o.supplier_bank || "")}" placeholder="对方公司开户行" autocomplete="off"></label>
-    <label>账号<input name="supplier_account" value="${esc(o.supplier_account || "")}" placeholder="对方公司账号" autocomplete="off"></label>
     <label>业务员
       <select name="purchaser_id" ${me.role === "purchase" ? "disabled" : ""}>
         <option value="">请选择</option>
@@ -2197,7 +2337,7 @@ function poHeaderFields(o = {}, orders = [], meta = {}, isNew = false) {
       </select>
       ${me.role === "purchase" ? `<input type="hidden" name="purchaser_id" value="${esc(me.id)}">` : ""}
     </label>
-    <label>选单（销售订单）
+    <label>销售订单
       <select name="sales_order_id" id="po-so">
         <option value="">不关联</option>
         ${orders
@@ -2205,17 +2345,21 @@ function poHeaderFields(o = {}, orders = [], meta = {}, isNew = false) {
           .join("")}
       </select>
     </label>
+    <label>工厂
+      <input name="supplier_name" value="${esc(o.supplier_name || "")}" placeholder="请输入关联工厂" autocomplete="off">
+    </label>
+    <label>联系人<input name="contact_name" value="${esc(o.contact_name || "")}" placeholder="请输入联系人姓名"></label>
+    <label>联系电话<input name="contact_phone" value="${esc(o.contact_phone || "")}" placeholder="请输入联系电话"></label>
     <label>项目<input name="project" value="${esc(o.project || "")}" placeholder="选填"></label>
-    <label>联系人<input name="contact_name" value="${esc(o.contact_name || "")}"></label>
-    <label>联系电话<input name="contact_phone" value="${esc(o.contact_phone || "")}"></label>
+    <label>开户行<input name="supplier_bank" value="${esc(o.supplier_bank || "")}" placeholder="请输入开户银行" autocomplete="off"></label>
+    <label>账号<input name="supplier_account" value="${esc(o.supplier_account || "")}" placeholder="对方账号" autocomplete="off"></label>
     <label>交货时间<input name="expected_date" type="date" required value="${esc(o.expected_date || "")}"></label>
     <label>发货仓库<input name="shipping_warehouse" value="${esc(o.shipping_warehouse || "")}" placeholder="手动填写"></label>
     <label>币种<select name="currency">
       ${["RMB", "USD", "EUR"].map((c) => `<option ${ (o.currency || "RMB") === c ? "selected" : ""}>${c}</option>`).join("")}
     </select></label>
-    <label>运费<input name="freight" type="number" step="0.01" min="0" value="${o.freight ?? 0}"></label>
-    <label>税费<input name="extra_tax" type="number" step="0.01" min="0" value="${o.extra_tax ?? 0}"></label>
-    <label class="full">备注<input name="remark" value="${esc(o.remark || "")}"></label>
+    <label>运费<input name="freight" type="number" step="0.01" min="0" value="${Number(o.freight ?? 0).toFixed(2)}"></label>
+    <label>税费<input name="extra_tax" type="number" step="0.01" min="0" value="${Number(o.extra_tax ?? 0).toFixed(2)}"></label>
     <input type="hidden" name="payment_terms" value="${esc(o.payment_terms || "")}">
   </div>`;
 }
@@ -2224,7 +2368,7 @@ function poLinesTable(lines) {
   const rows = lines.length ? lines : [{}];
   return `<div class="table-wrap"><table class="voucher-table po-line-table">
     <thead><tr>
-      <th></th><th>商品</th><th>采购单位</th><th>数量</th><th>单价</th><th>金额</th><th></th>
+      <th>#</th><th>商品</th><th>采购单位</th><th>数量</th><th>单价</th><th>金额</th><th>操作</th>
     </tr></thead>
     <tbody id="po-lines">${rows.map((l) => poLineRow(l)).join("")}</tbody>
   </table></div>`;
@@ -2241,7 +2385,7 @@ function poLineRow(ln = {}) {
     <td class="col-qty"><input name="quantity" type="number" step="0.01" min="0" value="${ln.quantity ?? 1}"></td>
     <td class="col-price"><input name="unit_price" type="number" step="0.01" min="0" value="${ln.unit_price ?? ""}" placeholder="0.00"></td>
     <td class="po-amt">0.00</td>
-    <td class="row-actions"><button type="button" class="ghost rm-line">删除</button></td>
+    <td class="row-actions"><button type="button" class="link-danger rm-line">删除</button></td>
   </tr>`;
 }
 
@@ -2254,20 +2398,30 @@ function poPayModeIsFull(o = {}) {
 function poFooterHtml(o = {}) {
   const isFull = poPayModeIsFull(o);
   return `
-    <div class="po-pay-split">
-      <div class="po-pay-block">
-        <label class="radio"><input type="radio" name="pay_mode" value="deposit" ${isFull ? "" : "checked"}> 订金</label>
-        <label>订金金额<input name="deposit" type="number" step="0.01" min="0" value="${isFull ? 0 : o.deposit ?? 0}" ${isFull ? "disabled" : ""}></label>
+    <div class="panel po-pay-panel">
+      <div class="po-pay-bar">
+        <div class="po-pay-modes">
+          <label class="po-pay-chip">
+            <input type="radio" name="pay_mode" value="deposit" ${isFull ? "" : "checked"}>
+            <span>订金</span>
+          </label>
+          <label class="po-pay-amt">订金金额<input name="deposit" type="number" step="0.01" min="0" value="${isFull ? "0.00" : Number(o.deposit ?? 0).toFixed(2)}" ${isFull ? "disabled" : ""}></label>
+          <label class="po-pay-chip">
+            <input type="radio" name="pay_mode" value="full" ${isFull ? "checked" : ""}>
+            <span>全部付清</span>
+          </label>
+        </div>
+        <div class="voucher-sum po-pay-sum">
+          <span>订单 <b id="po-order-amt">0.00</b></span>
+          <span>订金 <b id="po-deposit-amt">0.00</b></span>
+          <span>剩余 <b id="po-remain-amt">0.00</b></span>
+        </div>
+        <div class="po-pay-actions">
+          <a class="btn ghost" href="#/purchase-orders">放弃</a>
+          <button type="button" class="ghost" id="po-draft">保存草稿</button>
+          <button type="submit">确认提交</button>
+        </div>
       </div>
-      <div class="po-pay-block">
-        <label class="radio"><input type="radio" name="pay_mode" value="full" ${isFull ? "checked" : ""}> 全部</label>
-        <p class="muted">按订单金额一次付清</p>
-      </div>
-    </div>
-    <div class="voucher-sum">
-      <span>订单金额 <b id="po-order-amt">0.00</b></span>
-      <span>订金 <b id="po-deposit-amt">0.00</b></span>
-      <span>剩余金额 <b id="po-remain-amt">0.00</b></span>
     </div>`;
 }
 
@@ -2341,7 +2495,10 @@ function recalcPoLines() {
     if (el) el.textContent = typeof v === "number" ? v.toFixed(2) : v;
   };
   set("#po-goods", goods);
+  set("#po-goods-total", goods);
   set("#po-qty-sum", qtySum);
+  const countEl = $("#po-line-count");
+  if (countEl) countEl.textContent = String($$("#po-lines tr").length);
   set("#po-order-amt", orderAmt);
   set("#po-deposit-amt", deposit);
   set("#po-remain-amt", remain);
@@ -2462,32 +2619,18 @@ async function viewPurchaseOrderDetail(id) {
   }
   const fillPanel = o.can_fill ? poSheetHtml(o, orders, meta, false) : "";
   $("#view").innerHTML = `
-    <div class="panel flow-panel">
-      <div class="flow-head">
-        <h3>采购单流转</h3>
-        <span class="pill ${o.status}">当前：${esc(o.status_label)}</span>
-      </div>
-      ${flowDiagram(o)}
-    </div>
+    <div class="doc-page">
+    ${poFlowPanelHtml(o)}
     ${o.can_delete ? `<div class="row-actions" style="margin-bottom:12px"><button type="button" class="danger" id="del-po">删除采购单</button></div>` : ""}
-    ${
-      o.status === "accepted"
-        ? `<div class="panel">
-            <h3>验收</h3>
-            <p class="muted advance-desc">确认货物验收无误后，采购单进入已完成。</p>
-            <button type="button" id="po-adv">验收成功</button>
-          </div>`
-        : ""
-    }
     ${
       o.can_fill
         ? ""
-        : `<div class="panel po-acc" id="po-acc">
-      <h3>采购单信息</h3>
+        : `<div class="panel po-view-panel">
+      <h3 class="sec-title">采购单明细信息</h3>
       <div class="kv kv-wide">
         <div><span>采购单号</span><b>${esc(o.no)}</b></div>
         <div><span>单据日期</span><b>${esc(o.doc_date) || "—"}</b></div>
-        <div><span>供应商</span><b>${esc(o.supplier_name) || "待填写"}</b></div>
+        <div><span>工厂</span><b>${esc(o.supplier_name) || "待填写"}</b></div>
         <div><span>开户行</span><b>${esc(o.supplier_bank) || "—"}</b></div>
         <div><span>账号</span><b>${esc(o.supplier_account) || "—"}</b></div>
         <div><span>业务员</span><b>${esc(o.purchaser_name) || "—"}</b></div>
@@ -2505,27 +2648,22 @@ async function viewPurchaseOrderDetail(id) {
       </div>
       ${
         o.payment_vouchers && o.payment_vouchers.length
-          ? `<p class="muted" style="margin-top:12px">关联付款单 ${o.payment_vouchers
+          ? `<p class="muted po-view-note">关联付款单 ${o.payment_vouchers
               .map((v) => `<a href="#/finance/payments/${v.id}">${esc(v.no)}</a>`)
               .join("　")}</p>`
           : ""
       }
-      ${o.remark ? `<p class="muted" style="margin-top:12px">${esc(o.remark)}</p>` : ""}
-      <button type="button" class="po-acc-toggle" id="po-acc-toggle" aria-expanded="false">
-        <span>采购明细 · 共 ${(o.lines || []).length} 项</span>
-        <span class="po-acc-hint" id="po-acc-hint">点击展开</span>
-        <span class="po-acc-chevron" aria-hidden="true">▾</span>
-      </button>
-      <div class="po-acc-body" id="po-acc-body" hidden>
-        <div class="table-wrap"><table class="voucher-table">
+      <div class="table-wrap">
+        <table class="voucher-table">
           <thead><tr><th>商品</th><th>采购单位</th><th>数量</th><th>单价</th><th>金额</th></tr></thead>
           <tbody>${
             (o.lines || []).length
               ? o.lines.map((l) => `<tr><td>${esc(l.product_name || l.sku)}</td><td>${esc(l.unit)}</td><td>${l.quantity}</td><td>${fmtMoney(l.unit_price)}</td><td>${fmtMoney(l.amount)}</td></tr>`).join("")
               : `<tr><td colspan="5" class="muted">暂无明细</td></tr>`
           }</tbody>
-        </table></div>
+        </table>
       </div>
+      ${o.remark ? `<p class="muted po-view-note">备注：${esc(o.remark)}</p>` : ""}
     </div>`
     }
     ${fillPanel}
@@ -2533,8 +2671,7 @@ async function viewPurchaseOrderDetail(id) {
     ${
       o.can_audit
         ? `<form id="po-audit" class="panel">
-            <h3>管理员审核</h3>
-            <p class="muted advance-desc">通过后采购单生效，并在财务管理生成一张关联付款单，供财务登记实际付款。</p>
+            <p class="muted advance-desc">审核通过后采购单生效，并在财务管理生成关联付款单。</p>
             <label class="advance-field">审核说明<textarea name="remark"></textarea></label>
             <div class="row-actions form-footer">
               <button type="button" id="po-pass">审核通过</button>
@@ -2543,37 +2680,7 @@ async function viewPurchaseOrderDetail(id) {
           </form>`
         : ""
     }
-    ${
-      o.status === "in_progress"
-        ? `<div class="panel">
-            <h3>物流更新记录</h3>
-            ${
-              o.can_logistics
-                ? `<form id="po-logi" style="margin-top:20px">
-                    <div class="form-grid inq-form">
-                      <label>物流公司<input name="logistics_company"></label>
-                      <label>运单号<input name="tracking_no"></label>
-                      <label class="full">说明<input name="comment" placeholder="例如已订舱 / 已离港 / 预计到港时间"></label>
-                    </div>
-                    <div class="row-actions form-footer">
-                      <button type="submit">添加更新</button>
-                      ${o.can_advance ? `<button type="button" id="po-adv">确认收货</button>` : ""}
-                    </div>
-                  </form>`
-                : o.can_advance
-                  ? `<div class="row-actions form-footer" style="margin-top:16px"><button type="button" id="po-adv">确认收货</button></div>`
-                  : ""
-            }
-          </div>`
-        : ""
-    }
-    ${
-      o.status === "received" || o.status === "inbound"
-        ? `<div class="panel">
-            <button type="button" id="po-adv">${o.status === "received" ? "确认入库" : "确认验收"}</button>
-          </div>`
-        : ""
-    }
+    ${poFulfillPanelHtml(o)}
     <div class="panel">
       <h3>记录</h3>
       ${
@@ -2583,7 +2690,7 @@ async function viewPurchaseOrderDetail(id) {
                 const lg = item.lg;
                 const nested = poLogisticsNestedHtml(item.logistics);
                 const title =
-                  lg.to_status === "in_progress" && item.logistics.length
+                  ["in_progress", "stuffed", "domestic_inbound", "overseas_transit", "inbound"].includes(lg.to_status) && item.logistics.length
                     ? `${esc(lg.to_label)} · 物流 ${item.logistics.length} 条`
                     : esc(lg.to_label);
                 const body = `${lg.comment ? `<div class="tl-comment">${esc(lg.comment)}</div>` : ""}${nested}`;
@@ -2596,19 +2703,8 @@ async function viewPurchaseOrderDetail(id) {
               .join("")}</ol>`
           : `<p class="muted">暂无记录</p>`
       }
+    </div>
     </div>`;
-  const accBtn = $("#po-acc-toggle");
-  if (accBtn) {
-    accBtn.onclick = () => {
-      const box = $("#po-acc");
-      const body = $("#po-acc-body");
-      const open = !box.classList.contains("is-open");
-      box.classList.toggle("is-open", open);
-      body.hidden = !open;
-      $("#po-acc-hint").textContent = open ? "点击收起" : "点击展开";
-      accBtn.setAttribute("aria-expanded", open ? "true" : "false");
-    };
-  }
   if ($("#po-pass")) {
     $("#po-pass").onclick = async () => {
       await api(`/api/purchase-orders/${id}/audit`, { method: "POST", json: { action: "pass", remark: $("#po-audit textarea").value } });
@@ -2802,8 +2898,8 @@ function financeFilterBar(tab, orders) {
   const p = parseHash().params;
   const oid = p.get("order_id") || "";
   return `<form class="toolbar finance-filters" id="fin-filter">
-    <label>从<input type="date" name="from" value="${esc(p.get("from") || "")}"></label>
-    <label>到<input type="date" name="to" value="${esc(p.get("to") || "")}"></label>
+    <label>从<input type="date" name="from" class="${p.get("from") ? "" : "is-empty"}" value="${esc(p.get("from") || "")}"></label>
+    <label>到<input type="date" name="to" class="${p.get("to") ? "" : "is-empty"}" value="${esc(p.get("to") || "")}"></label>
     <label>销售订单
       <select name="order_id">
         <option value="">全部</option>
@@ -2823,6 +2919,12 @@ function financeFilterBar(tab, orders) {
 function bindFinanceFilter(tab) {
   const form = $("#fin-filter");
   if (!form) return;
+  $$("#fin-filter input[type=date]").forEach((el) => {
+    const sync = () => el.classList.toggle("is-empty", !el.value);
+    sync();
+    el.addEventListener("input", sync);
+    el.addEventListener("change", sync);
+  });
   form.onsubmit = (e) => {
     e.preventDefault();
     const fd = new FormData(form);
@@ -3236,4 +3338,5 @@ async function route() {
 }
 
 window.addEventListener("hashchange", route);
+initTheme();
 route();
