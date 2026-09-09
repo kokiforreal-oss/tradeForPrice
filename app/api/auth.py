@@ -27,6 +27,7 @@ class UserIn(BaseModel):
 
 
 class UserPatch(BaseModel):
+    username: Optional[str] = Field(default=None, min_length=2, max_length=64)
     name: Optional[str] = None
     role: Optional[str] = None
     is_active: Optional[bool] = None
@@ -96,22 +97,40 @@ def patch_user(
     user_id: int,
     body: UserPatch,
     db: Annotated[Session, Depends(get_db)],
-    current: Annotated[User, Depends(require_roles("admin"))],
+    current: Annotated[User, Depends(get_current_user)],
 ):
     u = db.get(User, user_id)
     if not u:
         raise HTTPException(404, "用户不存在")
+    is_admin = current.role == "admin"
+    if not is_admin and u.id != current.id:
+        raise HTTPException(403, "只能修改自己的账户")
+    if not is_admin and (body.role is not None or body.is_active is not None):
+        raise HTTPException(403, "不能修改角色或启用状态")
     if body.role is not None:
         if body.role not in ROLES:
             raise HTTPException(400, "角色无效")
         u.role = body.role
+    if body.username is not None:
+        username = body.username.strip()
+        if len(username) < 2:
+            raise HTTPException(400, "用户名至少 2 位")
+        exists = db.query(User).filter(User.username == username, User.id != u.id).first()
+        if exists:
+            raise HTTPException(400, "用户名已存在")
+        u.username = username
     if body.name is not None:
-        u.name = body.name
+        name = body.name.strip()
+        if not name:
+            raise HTTPException(400, "请填写姓名")
+        u.name = name
     if body.is_active is not None:
         if u.id == current.id and not body.is_active:
             raise HTTPException(400, "不能停用自己")
         u.is_active = body.is_active
     if body.password:
+        if len(body.password) < 6:
+            raise HTTPException(400, "密码至少 6 位")
         u.password_hash = hash_password(body.password)
     db.commit()
     db.refresh(u)

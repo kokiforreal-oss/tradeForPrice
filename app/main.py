@@ -8,6 +8,7 @@ from fastapi.staticfiles import StaticFiles
 
 from app.api import register_routers
 from app.config import BASE_DIR, UPLOAD_DIR, settings
+from app.core.audit import OperationAuditMiddleware
 from app.db.database import Base, SessionLocal, engine, ensure_schema, preserve_org_key
 from app.db.seed import ensure_catalog, seed
 
@@ -43,6 +44,7 @@ app = FastAPI(
     lifespan=lifespan,
 )
 register_routers(app)
+app.add_middleware(OperationAuditMiddleware)
 
 app.mount("/uploads", StaticFiles(directory=str(UPLOAD_DIR)), name="uploads")
 app.mount("/static", StaticFiles(directory=str(STATIC)), name="static")

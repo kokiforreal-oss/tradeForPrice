@@ -30,6 +30,7 @@ from app.core.utils import fmt_dt, next_no, to_float
 router = APIRouter(prefix="/api/finance", tags=["finance"])
 
 FINANCE_ROLES = ("admin", "finance")
+FINANCE_VIEW_ROLES = ("admin", "finance", "purchase")
 OPEN_ORDER_STATUSES = ("contract", "fulfilling", "done", "payment", "production", "shipping", "balance")
 OPEN_PO_STATUSES = (
     "in_progress",
@@ -70,8 +71,8 @@ def require_finance(user: Annotated[User, Depends(get_current_user)]) -> User:
 
 
 def require_finance_view(user: Annotated[User, Depends(get_current_user)]) -> User:
-    if user.role not in FINANCE_ROLES:
-        raise HTTPException(403, "仅财务或管理员可查看财务管理")
+    if user.role not in FINANCE_VIEW_ROLES:
+        raise HTTPException(403, "没有权限查看财务管理")
     return user
 
 
@@ -999,6 +1000,8 @@ def profit_by_purchase(
             {
                 "purchase_order_id": p.id,
                 "po_no": p.no,
+                "created_at": fmt_dt(p.created_at),
+                "doc_date": po_doc_date(p).isoformat() if po_doc_date(p) else "",
                 "status": p.status,
                 "status_label": PO_STATUS_LABEL.get(p.status, p.status),
                 "supplier_name": p.supplier_name,
@@ -1007,6 +1010,8 @@ def profit_by_purchase(
                 "paid": to_api_money(paid),
                 "sales_order_id": p.sales_order_id,
                 "so_no": so.no if so else "",
+                "so_created_at": fmt_dt(so.created_at) if so else "",
+                "so_doc_date": order_doc_date(so).isoformat() if so and order_doc_date(so) else "",
                 "customer_name": order_customer(so),
                 "so_currency": doc_currency(order=so) if so else "",
                 "so_amount": to_api_money(so_amt),
@@ -1080,6 +1085,8 @@ def summary(
             {
                 "order_id": o.id,
                 "no": o.no,
+                "created_at": fmt_dt(o.created_at),
+                "doc_date": order_doc_date(o).isoformat() if order_doc_date(o) else "",
                 "customer_name": (getattr(o, "customer_name", None) or "") or (o.inquiry.customer_name if o.inquiry else ""),
                 "currency": ccy,
                 "contract_amount": to_api_money(contract_amt),
@@ -1112,6 +1119,8 @@ def summary(
             {
                 "purchase_order_id": p.id,
                 "no": p.no,
+                "created_at": fmt_dt(p.created_at),
+                "doc_date": po_doc_date(p).isoformat() if po_doc_date(p) else "",
                 "status": p.status,
                 "status_label": PO_STATUS_LABEL.get(p.status, p.status),
                 "supplier_name": p.supplier_name,

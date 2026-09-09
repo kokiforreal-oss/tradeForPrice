@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
-"""每次升级时写入新构建号，并刷新静态资源 ?v=，避免浏览器继续用旧缓存。"""
+"""每次升级时写入新构建号，并刷新静态资源 ?v=，避免浏览器继续用旧缓存。
+
+VERSION 是构建时间戳；对外展示的产品版本见 APP_VERSION。
+"""
 
 from __future__ import annotations
 

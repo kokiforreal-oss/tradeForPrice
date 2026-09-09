@@ -252,6 +252,12 @@ def serialize_inquiry(inq: Inquiry, user: User) -> dict:
         and inq.status == "selling"
         and inq.order is None,
         "can_edit": user.role == "sales" and inq.creator_id == user.id and inq.status == "pending_quote" and not inq.quotes,
+        "can_withdraw": bool(
+            user.role == "sales"
+            and inq.creator_id == user.id
+            and inq.order is not None
+            and inq.order.status == "pending_audit"
+        ),
         "can_delete": inquiry_can_delete(inq, user),
         "close_reason_options": list(CLOSE_REASONS),
     }

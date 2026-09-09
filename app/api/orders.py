@@ -200,6 +200,7 @@ def serialize_order(order: Order, user: Optional[User] = None) -> dict:
         "updated_at": fmt_dt(order.updated_at) if order.updated_at else "",
         "incoterms": list(INCOTERMS),
         "can_audit": bool(user and user.role == "admin" and order.status == "pending_audit"),
+        "can_withdraw": bool(owner and order.status == "pending_audit"),
         "can_fill": bool(owner and order.status == "draft"),
         "can_save": bool(owner and order.status in ("draft", "contract")),
         "lines": lines,
@@ -280,6 +281,9 @@ def list_orders(
             or (r.inquiry.creator.name if r.inquiry and r.inquiry.creator else "")
             or (r.creator.name if r.creator else ""),
             "created_at": fmt_dt(r.created_at),
+            "can_withdraw": bool(
+                user.role == "sales" and is_sales_owner(user, r) and r.status == "pending_audit"
+            ),
         }
         for r in rows
     ]
@@ -505,6 +509,45 @@ def submit_sales_order(
     )
     db.commit()
     return serialize_order(load_order(db, order.id), user)
+
+
+@router.post("/{order_id}/withdraw")
+def withdraw_order(
+    order_id: int,
+    db: Annotated[Session, Depends(get_db)],
+    user: Annotated[User, Depends(require_roles("sales"))],
+):
+    order = load_order(db, order_id)
+    if not order or not is_sales_owner(user, order):
+        raise HTTPException(404, "销售订单不存在")
+    if order.status != "pending_audit":
+        raise HTTPException(400, "仅待审核单据可撤回申请")
+    if order.purchase_orders:
+        raise HTTPException(400, "已关联采购单，不能撤回")
+    inq = order.inquiry
+    if inq:
+        inquiry_id = inq.id
+        db.delete(order)
+        db.flush()
+        inq.status = "selling"
+        inq.audit_reject_remark = ""
+        inq.audit_reject_order_no = ""
+        db.commit()
+        return {"withdrawn": True, "inquiry_id": inquiry_id, "message": "已撤回审核申请，可在询价单修改后重新提交"}
+    prev = order.status
+    order.status = "draft"
+    order.audit_remark = ""
+    db.add(
+        OrderLog(
+            order_id=order.id,
+            from_status=prev,
+            to_status="draft",
+            operator_id=user.id,
+            comment="撤回审核申请",
+        )
+    )
+    db.commit()
+    return {"withdrawn": True, "order": serialize_order(load_order(db, order.id), user)}
 
 
 @router.post("/{order_id}/audit")

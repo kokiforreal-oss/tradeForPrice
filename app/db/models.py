@@ -452,3 +452,42 @@ class FinanceAllocLine(Base):
     order: Mapped[Optional["Order"]] = relationship()
     purchase_order: Mapped[Optional["PurchaseOrder"]] = relationship()
 
+
+class Feedback(Base):
+    __tablename__ = "feedbacks"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    no: Mapped[str] = mapped_column(String(32), unique=True, index=True)
+    creator_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    kind: Mapped[str] = mapped_column(String(20), default="bug", index=True)
+    severity: Mapped[str] = mapped_column(String(20), default="normal")
+    title: Mapped[str] = mapped_column(String(200))
+    body: Mapped[str] = mapped_column(Text, default="")
+    status: Mapped[str] = mapped_column(String(20), default="open", index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
+
+    creator: Mapped["User"] = relationship(foreign_keys=[creator_id])
+
+
+class OperationLog(Base):
+    __tablename__ = "operation_logs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"), nullable=True, index=True)
+    username: Mapped[str] = mapped_column(String(64), default="")
+    user_name: Mapped[str] = mapped_column(String(64), default="")
+    role: Mapped[str] = mapped_column(String(20), default="", index=True)
+    module: Mapped[str] = mapped_column(String(32), default="", index=True)
+    action: Mapped[str] = mapped_column(String(80), default="")
+    method: Mapped[str] = mapped_column(String(12), default="")
+    path: Mapped[str] = mapped_column(String(200), default="")
+    target: Mapped[str] = mapped_column(String(64), default="")
+    detail: Mapped[str] = mapped_column(String(500), default="")
+    ip: Mapped[str] = mapped_column(String(64), default="")
+    status_code: Mapped[int] = mapped_column(Integer, default=0)
+    success: Mapped[bool] = mapped_column(default=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, index=True)
+
+    user: Mapped[Optional["User"]] = relationship(foreign_keys=[user_id])
+

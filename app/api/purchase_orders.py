@@ -435,6 +435,9 @@ def serialize_po(po: PurchaseOrder, user: Optional[User] = None) -> dict:
         "created_at": fmt_dt(po.created_at),
         "updated_at": fmt_dt(po.updated_at) if po.updated_at else "",
         "can_audit": bool(user and user.role == "admin" and po.status == "pending_audit"),
+        "can_withdraw": bool(
+            user and user.role == "purchase" and po.status == "pending_audit" and is_purchase_owner(user, po)
+        ),
         "can_fill": bool(
             user
             and user.role == "purchase"
@@ -549,6 +552,9 @@ def list_pos(
             "doc_date": r.doc_date.isoformat() if getattr(r, "doc_date", None) else "",
             "created_at": fmt_dt(r.created_at),
             "can_delete": user.role == "admin",
+            "can_withdraw": bool(
+                user.role == "purchase" and is_purchase_owner(user, r) and r.status == "pending_audit"
+            ),
         }
         for r in rows
     ]
@@ -743,6 +749,34 @@ def delete_po(
     db.delete(po)
     db.commit()
     return {"ok": True, "message": "采购单已删除"}
+
+
+@router.post("/{po_id}/withdraw")
+def withdraw_po(
+    po_id: int,
+    db: Annotated[Session, Depends(get_db)],
+    user: Annotated[User, Depends(require_roles("purchase"))],
+):
+    po = load_po(db, po_id)
+    if not po or not is_purchase_owner(user, po):
+        raise HTTPException(404, "采购单不存在")
+    if po.status != "pending_audit":
+        raise HTTPException(400, "仅待审核单据可撤回申请")
+    prev = po.status
+    po.status = "pending_fill"
+    po.audit_remark = ""
+    db.add(
+        PurchaseOrderLog(
+            purchase_order_id=po.id,
+            kind="status",
+            from_status=prev,
+            to_status="pending_fill",
+            comment="撤回审核申请",
+            operator_id=user.id,
+        )
+    )
+    db.commit()
+    return serialize_po(load_po(db, po.id), user)
 
 
 @router.post("/{po_id}/audit")

@@ -176,6 +176,11 @@ async function api(path, opts = {}) {
   return e2eWalkDecrypt(data);
 }
 
+async function withdrawAudit(url, message) {
+  if (!confirm(message || "确认撤回审核申请？撤回后可修改并重新提交。")) return null;
+  return api(url, { method: "POST" });
+}
+
 async function authFetch(path, opts = {}) {
   const headers = { ...(opts.headers || {}) };
   if (token()) headers.Authorization = "Bearer " + token();
@@ -205,6 +210,14 @@ async function downloadFile(path, filename) {
   URL.revokeObjectURL(a.href);
 }
 
+function canViewFinance() {
+  return ["admin", "finance", "purchase"].includes(me.role);
+}
+
+function canEditFinance() {
+  return ["admin", "finance"].includes(me.role);
+}
+
 function navItems() {
   const all = [{ group: "工作" }, { href: "#/home", label: "工作台", ico: "⌂" }];
   const biz = [];
@@ -214,7 +227,7 @@ function navItems() {
     biz.push({ href: "#/orders", label: "销售订单", ico: "▣" });
     biz.push({ href: "#/purchase-orders", label: "采购订单", ico: "⛴" });
   }
-  if (["admin", "finance"].includes(me.role)) {
+  if (canViewFinance()) {
     biz.push({
       href: "#/finance",
       label: "财务管理",
@@ -225,9 +238,23 @@ function navItems() {
     all.push({ group: "业务" });
     all.push(...biz);
   }
+  all.push({ group: "系统" });
+  all.push({
+    href: "#/feedback",
+    label: "问题反馈",
+    ico: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 6h14v10H8l-3 3V6z"/><path d="M9 10h6M9 13h4"/></svg>`,
+  });
+  all.push({
+    href: "#/users",
+    label: "账户管理",
+    ico: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="8" r="3.2"/><path d="M5.5 19.2c.8-3.1 3.4-5.2 6.5-5.2s5.7 2.1 6.5 5.2"/></svg>`,
+  });
   if (me.role === "admin") {
-    all.push({ group: "系统" });
-    all.push({ href: "#/users", label: "用户管理", ico: "⚙" });
+    all.push({
+      href: "#/audit-logs",
+      label: "操作日志",
+      ico: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 4h10v16H6V6"/><path d="M8 4V6H6"/><path d="M10 10h6M10 14h6M10 18h4"/></svg>`,
+    });
   }
   return all;
 }
@@ -429,7 +456,6 @@ function bindDocListFilter(baseHash) {
 }
 
 const CARD_HREF = {
-  _todos: "#/home",
   pending_quote: "#/inquiries?status=pending_quote",
   quoted: "#/inquiries?status=quoted",
   selling: "#/inquiries?status=selling",
@@ -440,6 +466,7 @@ const CARD_HREF = {
   po_fill: "#/purchase-orders?status=pending_fill",
   po_pending: "#/purchase-orders?status=pending_audit",
   po_progress: "#/purchase-orders?status=in_progress",
+  rec_fill: "#/finance?tab=receipts",
   pay_fill: "#/finance?tab=payments",
 };
 
@@ -453,30 +480,27 @@ function kpiIconSvg(i) {
 }
 
 async function viewHome() {
-  pageTitle("工作台", me.role === "admin" ? "待审核询价单、销售订单与采购订单 | 今日业务审核概览" : "今日待办与快捷入口");
+  pageTitle("工作台", "当前角色的工作任务");
   const d = await api("/api/dashboard");
   const todos = d.todos || [];
   const todoHint =
     me.role === "admin"
-      ? "待审核的询价单、销售订单、采购订单会显示在这里。"
+      ? "待报价询价、待审核销售单/采购单、待处理反馈会显示在这里。"
       : me.role === "sales"
-        ? "已报价询价单、审核驳回待处理的单据、待填写合同会显示在这里。"
+        ? "已报价和销售中的询价、草稿销售单、待填写合同会显示在这里。"
         : me.role === "purchase"
-          ? "待报价及可继续报价的询价单、待填写及审核驳回的采购单会显示在这里。"
+          ? "待报价询价、待填写采购单、需要推进的采购履约会显示在这里。"
           : me.role === "finance"
-            ? "采购单审核通过后生成的待填写付款单会显示在这里。"
+            ? "财务管理里待填写的收款单、付款单会显示在这里。"
             : "当前角色没有流程待办。";
-  const cards =
-    me.role === "admin"
-      ? d.cards || []
-      : [{ key: "_todos", label: "待处理事项", count: todos.length }, ...(d.cards || [])];
+  const cards = d.cards || [];
   const emptyIco = kpiIconSvg(0);
   $("#view").innerHTML = `
     <div class="home-board">
     <div class="today-head">
       <div>
         <strong>${esc(fmtWorkday())}</strong>
-        <p>你好，${esc(d.name || me.name || "")}。${me.role === "admin" ? "请处理待审核单据。" : "按清单处理今日事项。"}</p>
+        <p>你好，${esc(d.name || me.name || "")}。请处理待办事项。</p>
       </div>
       <div class="today-head-meta">
         <span class="${todos.length ? "hot" : "ok"}">${todos.length ? `${todos.length} 项待办未完成` : "待办已清"}</span>
@@ -1180,8 +1204,11 @@ function sellingResultHtml(inq) {
   const winCard = inq.order_id && inq.order_status === "pending_audit"
     ? `<div class="panel advance-card">
         <h3>待管理员审核</h3>
-        <p class="muted advance-desc">订单 ${esc(inq.order_no || "")} 已提交，审核通过后请填写销售订单</p>
-        ${me.role === "admin" ? `<div class="row-actions"><a class="btn" href="#/orders/${inq.order_id}">去审核</a></div>` : ""}
+        <p class="muted advance-desc">订单 ${esc(inq.order_no || "")} 已提交，审核通过前可以撤回，回到询价单后可重新提交。</p>
+        <div class="row-actions">
+          ${me.role === "admin" ? `<a class="btn" href="#/orders/${inq.order_id}">去审核</a>` : ""}
+          ${inq.can_withdraw ? `<button type="button" class="ghost" id="withdraw-audit" data-order-id="${inq.order_id}">撤回申请</button>` : ""}
+        </div>
       </div>`
     : inq.order_id && inq.order_status && inq.order_status !== "rejected"
     ? `<div class="panel advance-card">
@@ -1244,6 +1271,18 @@ function bindSellingActions(id) {
       if (!confirm("确认提交管理员审核？通过后才会进入销售订单。")) return;
       await api(`/api/inquiries/${id}/win`, { method: "POST" });
       viewInquiryDetail(id);
+    };
+  }
+  if ($("#withdraw-audit")) {
+    $("#withdraw-audit").onclick = async () => {
+      try {
+        const oid = $("#withdraw-audit").dataset.orderId;
+        if (!oid) return;
+        if (!(await withdrawAudit("/api/orders/" + oid + "/withdraw"))) return;
+        viewInquiryDetail(id);
+      } catch (err) {
+        alert(err.message || "撤回失败");
+      }
     };
   }
   const rf = $("#requote-form");
@@ -1510,6 +1549,9 @@ async function viewOrders() {
                     me.role === "admin"
                       ? ` <button class="danger" data-del-ord="${r.id}">删除</button>`
                       : "";
+                  const withdraw = r.can_withdraw
+                    ? ` <button class="ghost" data-withdraw-ord="${r.id}">撤回</button>`
+                    : "";
                   return `<tr>
             <td>${esc(fmtDocTime(r.created_at))}</td>
             <td><a href="#/orders/${r.id}">${esc(r.no)}</a></td>
@@ -1517,7 +1559,7 @@ async function viewOrders() {
             <td>${fmtMoney(r.total)} ${esc(r.currency)}</td>
             <td>${pill(r.status, r.status_label)}</td>
             <td>${esc(r.sales_name)}</td>
-            <td><a class="btn" href="#/orders/${r.id}">进入</a>${del}</td>
+            <td><a class="btn" href="#/orders/${r.id}">进入</a>${withdraw}${del}</td>
           </tr>`;
                 })
                 .join("")
@@ -1532,6 +1574,16 @@ async function viewOrders() {
       if (!confirm("确认删除该销售订单？")) return;
       await api("/api/orders/" + b.dataset.delOrd, { method: "DELETE" });
       viewOrders();
+    };
+  });
+  $$("[data-withdraw-ord]").forEach((b) => {
+    b.onclick = async () => {
+      try {
+        if (!(await withdrawAudit("/api/orders/" + b.dataset.withdrawOrd + "/withdraw"))) return;
+        viewOrders();
+      } catch (err) {
+        alert(err.message || "撤回失败");
+      }
     };
   });
 }
@@ -1911,6 +1963,18 @@ function stageFormHtml(o) {
       </div>
     </form>`;
   }
+  if (o.can_withdraw) {
+    return `<div class="panel">
+      <h3>待管理员审核</h3>
+      <p class="muted advance-desc">审核通过前可以撤回申请。${
+        o.inquiry_id ? "撤回后回到询价单，可重新提交审核。" : "撤回后可继续改单，再提交审核。"
+      }</p>
+      <div class="row-actions form-footer">
+        <button type="button" class="ghost" id="withdraw-audit">撤回申请</button>
+        ${back}
+      </div>
+    </div>`;
+  }
   if (o.status === "contract" && me.role === "sales") {
     const t = o.incoterm || "FOB";
     return `<form id="c-form" class="panel" novalidate>
@@ -2230,6 +2294,22 @@ async function viewOrderDetail(id) {
       route();
     };
   }
+  if ($("#withdraw-audit")) {
+    $("#withdraw-audit").onclick = async () => {
+      try {
+        const data = await withdrawAudit("/api/orders/" + id + "/withdraw");
+        if (!data) return;
+        if (data.inquiry_id) {
+          location.hash = "#/inquiries/" + data.inquiry_id;
+          route();
+          return;
+        }
+        viewOrderDetail(id);
+      } catch (err) {
+        alert(err.message || "撤回失败");
+      }
+    };
+  }
   if ($("#del-ord")) {
     $("#del-ord").onclick = async () => {
       if (!confirm("确认删除该订单？")) return;
@@ -2273,6 +2353,8 @@ async function viewPurchaseOrders() {
                 <td>${fmtMoney(r.total)} ${esc(r.currency)}</td>
                 <td>${pill(r.status, r.status_label)}</td>
                 <td><a class="btn" href="#/purchase-orders/${r.id}">进入</a>${
+                  r.can_withdraw ? ` <button class="ghost" data-withdraw-po="${r.id}">撤回</button>` : ""
+                }${
                   r.can_delete ? ` <button class="danger" data-del-po="${r.id}">删除</button>` : ""
                 }</td>
               </tr>`).join("")
@@ -2290,6 +2372,16 @@ async function viewPurchaseOrders() {
         viewPurchaseOrders();
       } catch (err) {
         alert(err.message || "删除失败");
+      }
+    };
+  });
+  $$("[data-withdraw-po]").forEach((b) => {
+    b.onclick = async () => {
+      try {
+        if (!(await withdrawAudit("/api/purchase-orders/" + b.dataset.withdrawPo + "/withdraw"))) return;
+        viewPurchaseOrders();
+      } catch (err) {
+        alert(err.message || "撤回失败");
       }
     };
   });
@@ -2712,6 +2804,17 @@ async function viewPurchaseOrderDetail(id) {
           </form>`
         : ""
     }
+    ${
+      o.can_withdraw
+        ? `<div class="panel">
+            <h3>待管理员审核</h3>
+            <p class="muted advance-desc">审核通过前可以撤回申请，回到待填写后可改单再提交。</p>
+            <div class="row-actions form-footer">
+              <button type="button" class="ghost" id="po-withdraw">撤回申请</button>
+            </div>
+          </div>`
+        : ""
+    }
     ${poFulfillPanelHtml(o)}
     <div class="panel">
       <h3>记录</h3>
@@ -2747,6 +2850,16 @@ async function viewPurchaseOrderDetail(id) {
     $("#po-reject").onclick = async () => {
       await api(`/api/purchase-orders/${id}/audit`, { method: "POST", json: { action: "reject", remark: $("#po-audit textarea").value } });
       viewPurchaseOrderDetail(id);
+    };
+  }
+  if ($("#po-withdraw")) {
+    $("#po-withdraw").onclick = async () => {
+      try {
+        if (!(await withdrawAudit(`/api/purchase-orders/${id}/withdraw`))) return;
+        viewPurchaseOrderDetail(id);
+      } catch (err) {
+        alert(err.message || "撤回失败");
+      }
     };
   }
   if ($("#po-logi")) {
@@ -2815,7 +2928,7 @@ async function viewPurchaseOrderDetail(id) {
 }
 
 async function viewFinance() {
-  if (me.role !== "admin" && me.role !== "finance") {
+  if (!canViewFinance()) {
     location.hash = "#/home";
     return;
   }
@@ -2836,17 +2949,19 @@ async function viewFinance() {
       ${filterBar}
       ${fxHint(d.fx)}
       <div class="table-wrap"><table>
-        <thead><tr><th>采购单</th><th>状态</th><th>供应商</th><th>采购金额(人民币)</th><th>已付款(人民币)</th><th>销售订单</th><th>客户</th><th>销售金额(人民币)</th><th>已收款(人民币)</th><th>毛利(人民币)</th></tr></thead>
+        <thead><tr><th>采购时间</th><th>采购单</th><th>状态</th><th>供应商</th><th>采购金额(人民币)</th><th>已付款(人民币)</th><th>销售时间</th><th>销售订单</th><th>客户</th><th>销售金额(人民币)</th><th>已收款(人民币)</th><th>毛利(人民币)</th></tr></thead>
         <tbody>${
           d.items && d.items.length
             ? d.items
                 .map(
                   (r) => `<tr>
+            <td>${esc(fmtDocTime(r.created_at) || r.doc_date || "—")}</td>
             <td><a href="#/purchase-orders/${r.purchase_order_id}">${esc(r.po_no)}</a></td>
             <td>${pill(r.status, r.status_label || r.status)}</td>
             <td>${esc(r.supplier_name)}</td>
             <td>${fmtMoney(r.po_amount)}</td>
             <td>${fmtMoney(r.paid)}</td>
+            <td>${esc(fmtDocTime(r.so_created_at) || r.so_doc_date || "—")}</td>
             <td>${r.sales_order_id ? `<a href="#/orders/${r.sales_order_id}">${esc(r.so_no)}</a>` : "—"}</td>
             <td>${esc(r.customer_name)}</td>
             <td>${fmtMoney(r.so_amount)}</td>
@@ -2855,7 +2970,7 @@ async function viewFinance() {
           </tr>`
                 )
                 .join("")
-            : `<tr><td colspan="10" class="muted">暂无符合条件的采购单</td></tr>`
+            : `<tr><td colspan="12" class="muted">暂无符合条件的采购单</td></tr>`
         }</tbody>
       </table></div>`;
   } else if (tab === "summary") {
@@ -2867,12 +2982,12 @@ async function viewFinance() {
         ${d.cards.map((c) => `<div class="card"><div class="n">${c.count}</div><div class="l">${esc(c.label)}</div></div>`).join("")}
       </div>
       <div class="panel"><h3>销售订单对账</h3>
-        <div class="table-wrap"><table><thead><tr><th>销售单</th><th>客户</th><th>合同额</th><th>累计收款</th><th>已核销</th><th>未收</th></tr></thead>
-        <tbody>${d.sales.length ? d.sales.map((r) => `<tr><td><a href="#/orders/${r.order_id}">${esc(r.no)}</a></td><td>${esc(r.customer_name)}</td><td>${fmtMoney(r.contract_amount)}</td><td>${fmtMoney(r.received)}</td><td>${fmtMoney(r.written_off)}</td><td>${fmtMoney(r.open_ar)}</td></tr>`).join("") : `<tr><td colspan="6" class="muted">暂无符合条件的销售单</td></tr>`}</tbody></table></div>
+        <div class="table-wrap"><table><thead><tr><th>时间</th><th>销售单</th><th>客户</th><th>合同额</th><th>累计收款</th><th>已核销</th><th>未收</th></tr></thead>
+        <tbody>${d.sales.length ? d.sales.map((r) => `<tr><td>${esc(fmtDocTime(r.created_at) || r.doc_date || "—")}</td><td><a href="#/orders/${r.order_id}">${esc(r.no)}</a></td><td>${esc(r.customer_name)}</td><td>${fmtMoney(r.contract_amount)}</td><td>${fmtMoney(r.received)}</td><td>${fmtMoney(r.written_off)}</td><td>${fmtMoney(r.open_ar)}</td></tr>`).join("") : `<tr><td colspan="7" class="muted">暂无符合条件的销售单</td></tr>`}</tbody></table></div>
       </div>
       <div class="panel"><h3>采购订单对账</h3>
-        <div class="table-wrap"><table><thead><tr><th>采购单</th><th>状态</th><th>供应商</th><th>合同额</th><th>累计付款</th><th>已核销</th><th>未付</th></tr></thead>
-        <tbody>${d.purchases.length ? d.purchases.map((r) => `<tr><td><a href="#/purchase-orders/${r.purchase_order_id}">${esc(r.no)}</a></td><td>${pill(r.status, r.status_label || r.status)}</td><td>${esc(r.supplier_name)}</td><td>${fmtMoney(r.contract_amount)}</td><td>${fmtMoney(r.paid)}</td><td>${fmtMoney(r.written_off)}</td><td>${fmtMoney(r.open_ap)}</td></tr>`).join("") : `<tr><td colspan="7" class="muted">暂无符合条件的采购单</td></tr>`}</tbody></table></div>
+        <div class="table-wrap"><table><thead><tr><th>时间</th><th>采购单</th><th>状态</th><th>供应商</th><th>合同额</th><th>累计付款</th><th>已核销</th><th>未付</th></tr></thead>
+        <tbody>${d.purchases.length ? d.purchases.map((r) => `<tr><td>${esc(fmtDocTime(r.created_at) || r.doc_date || "—")}</td><td><a href="#/purchase-orders/${r.purchase_order_id}">${esc(r.no)}</a></td><td>${pill(r.status, r.status_label || r.status)}</td><td>${esc(r.supplier_name)}</td><td>${fmtMoney(r.contract_amount)}</td><td>${fmtMoney(r.paid)}</td><td>${fmtMoney(r.written_off)}</td><td>${fmtMoney(r.open_ap)}</td></tr>`).join("") : `<tr><td colspan="8" class="muted">暂无符合条件的采购单</td></tr>`}</tbody></table></div>
       </div>
       ${financeLineChart(d.chart)}`;
   } else {
@@ -2882,9 +2997,7 @@ async function viewFinance() {
     const title = direction === "receipt" ? "收款单" : "付款单";
     body = `
       ${filterBar}
-      <div class="toolbar page-toolbar">
-        <a class="btn" href="${newHref}">新建${title}</a>
-      </div>
+      ${canEditFinance() ? `<div class="toolbar page-toolbar"><a class="btn" href="${newHref}">新建${title}</a></div>` : ""}
       <div class="table-wrap"><table>
         <thead><tr><th>创建时间</th><th>单号</th><th>类型</th><th>往来单位</th><th>${direction === "payment" ? "采购单" : "销售订单"}</th><th>结算合计</th><th>现金折扣</th><th>本次金额</th><th>摘要</th><th>备注</th><th>操作人</th><th></th></tr></thead>
         <tbody>${
@@ -2903,7 +3016,7 @@ async function viewFinance() {
             <td>${esc(r.summary || "")}</td>
             <td>${esc(r.remark || "")}</td>
             <td>${esc(r.operator)}</td>
-            <td><a href="#/finance/${direction === "receipt" ? "receipts" : "payments"}/${r.id}">修改</a></td>
+            <td><a href="#/finance/${direction === "receipt" ? "receipts" : "payments"}/${r.id}">${canEditFinance() ? "修改" : "查看"}</a></td>
           </tr>`
                 )
                 .join("")
@@ -3056,13 +3169,18 @@ function settleRowHtml(meta, ln = {}) {
 }
 
 async function viewVoucherForm(direction, voucherId) {
-  if (me.role !== "admin" && me.role !== "finance") {
+  if (!canViewFinance()) {
     location.hash = "#/home";
+    return;
+  }
+  const readonly = !canEditFinance();
+  if (readonly && !voucherId) {
+    location.hash = "#/finance";
     return;
   }
   const isReceipt = direction === "receipt";
   const title = isReceipt ? "收款单" : "付款单";
-  pageTitle(voucherId ? "编辑" + title : "新建" + title);
+  pageTitle(readonly ? "查看" + title : voucherId ? "编辑" + title : "新建" + title);
   const [meta, linkable] = await Promise.all([
     api("/api/finance/meta"),
     api("/api/finance/linkable-docs?direction=" + direction),
@@ -3089,9 +3207,10 @@ async function viewVoucherForm(direction, voucherId) {
   $("#view").innerHTML = `
     <form id="voucher-form" class="voucher-page">
       <div class="voucher-toolbar">
-        <button type="submit">保存</button>
-        <a class="btn ghost" href="#/finance?tab=${isReceipt ? "receipts" : "payments"}">${existing ? "返回列表" : "取消"}</a>
+        ${readonly ? "" : `<button type="submit">保存</button>`}
+        <a class="btn ghost" href="#/finance?tab=${isReceipt ? "receipts" : "payments"}">${existing || readonly ? "返回列表" : "取消"}</a>
       </div>
+      <fieldset ${readonly ? "disabled" : ""}>
       <div class="panel voucher-head">
         <div class="voucher-type-row">
           <label class="radio"><input type="radio" name="voucher_type" value="collect" ${!existing || existing.voucher_type === "collect" ? "checked" : ""}> ${typeCollect}</label>
@@ -3138,7 +3257,7 @@ async function viewVoucherForm(direction, voucherId) {
               : settleRowHtml(meta)
           }</tbody>
         </table></div>
-        <div class="row-actions form-footer"><button type="button" class="ghost" id="add-settle">再记一笔</button></div>
+        <div class="row-actions form-footer">${readonly ? "" : `<button type="button" class="ghost" id="add-settle">再记一笔</button>`}</div>
         ${fxHint(meta.fx)}
         <div class="voucher-sum">
           <span>${typeCollect}合计 <b id="settle-total">${fmtMoney(existing?.settle_total || 0)}</b> <span class="muted" id="settle-ccy">${esc(existing?.currency || "RMB")}</span></span>
@@ -3147,9 +3266,10 @@ async function viewVoucherForm(direction, voucherId) {
           <span>= 本次${typeCollect} <b id="final-amount">${fmtMoney(existing?.final_amount || 0)}</b></span>
         </div>
       </div>
+      </fieldset>
     </form>`;
   $$("#settle-lines tr").forEach(renumberSettle);
-  bindVoucherForm(direction, meta, existing);
+  bindVoucherForm(direction, meta, existing, readonly);
 }
 
 function renumberSettle(tr, i) {
@@ -3157,7 +3277,7 @@ function renumberSettle(tr, i) {
   if (idx) idx.textContent = i + 1;
 }
 
-function bindVoucherForm(direction, meta, existing) {
+function bindVoucherForm(direction, meta, existing, readonly) {
   const form = $("#voucher-form");
   const isReceipt = direction === "receipt";
 
@@ -3194,6 +3314,11 @@ function bindVoucherForm(direction, meta, existing) {
       refreshSettleSum();
     }
   };
+
+  if (readonly) {
+    refreshSettleSum();
+    return;
+  }
 
   $("#add-settle").onclick = () => {
     const last = $$("#settle-lines tr").slice(-1)[0];
@@ -3280,8 +3405,285 @@ function bindVoucherForm(direction, meta, existing) {
   if (form.link_doc_id?.value) applyLinkDoc();
 }
 
+async function viewFeedback() {
+  pageTitle("问题反馈", "提交缺陷或建议，记录后由管理员处理");
+  const status = parseHash().params.get("status") || "";
+  const kind = parseHash().params.get("kind") || "";
+  const qs = new URLSearchParams();
+  if (status) qs.set("status", status);
+  if (kind) qs.set("kind", kind);
+  const rows = await api("/api/feedback" + (qs.toString() ? "?" + qs.toString() : ""));
+  $("#view").innerHTML = `
+    <div class="doc-page">
+      <form id="fb-form" class="panel">
+        <h3 class="sec-title">提交反馈</h3>
+        <p class="muted section-lead">发现页面异常或有改进建议，直接写下来即可，提交后会进入记录列表。</p>
+        <div class="form-grid inq-form">
+          <label>类型<select name="kind">
+            <option value="bug">缺陷</option>
+            <option value="suggestion">建议</option>
+          </select></label>
+          <label>严重程度<select name="severity">
+            <option value="normal">一般</option>
+            <option value="high">严重</option>
+          </select></label>
+          <label class="full">标题<input name="title" required maxlength="200" placeholder="一句话说明问题"></label>
+          <label class="full">描述<textarea name="body" rows="4" placeholder="复现步骤、期望结果，或建议怎么改"></textarea></label>
+        </div>
+        <div class="row-actions form-footer"><button type="submit">提交反馈</button></div>
+      </form>
+      <div class="panel">
+        <div class="panel-head">
+          <h3>反馈记录</h3>
+          <form class="toolbar page-toolbar" id="fb-filter">
+            <select name="kind">
+              <option value="">全部类型</option>
+              <option value="bug" ${kind === "bug" ? "selected" : ""}>缺陷</option>
+              <option value="suggestion" ${kind === "suggestion" ? "selected" : ""}>建议</option>
+            </select>
+            <select name="status">
+              <option value="">全部状态</option>
+              <option value="open" ${status === "open" ? "selected" : ""}>待处理</option>
+              <option value="done" ${status === "done" ? "selected" : ""}>已处理</option>
+            </select>
+            <button class="ghost" type="submit">筛选</button>
+          </form>
+        </div>
+        <div class="table-wrap"><table>
+          <thead><tr><th>时间</th><th>单号</th><th>类型</th><th>标题</th><th>程度</th><th>提交人</th><th>状态</th><th></th></tr></thead>
+          <tbody>
+            ${
+              rows.length
+                ? rows
+                    .map(
+                      (r) => `<tr>
+              <td>${esc(fmtDocTime(r.created_at))}</td>
+              <td>${esc(r.no)}</td>
+              <td>${pill(r.kind, r.kind_label)}</td>
+              <td>${esc(r.title)}</td>
+              <td>${r.severity === "high" ? pill("reject", r.severity_label) : esc(r.severity_label)}</td>
+              <td>${esc(r.creator_name)}${r.creator_role ? ` · ${esc(r.creator_role)}` : ""}</td>
+              <td>${pill(r.status === "done" ? "won" : "quote", r.status_label)}</td>
+              <td class="row-actions">
+                <button type="button" class="ghost" data-fb-body="${r.id}">详情</button>
+                ${r.can_resolve ? `<button type="button" data-fb-done="${r.id}">已处理</button>` : ""}
+              </td>
+            </tr>
+            <tr class="fb-detail hidden" id="fb-body-${r.id}"><td colspan="8"><p class="muted" style="margin:0;white-space:pre-wrap">${esc(r.body) || "未填写描述"}</p></td></tr>`
+                    )
+                    .join("")
+                : `<tr><td colspan="8" class="empty-hint muted">暂无反馈记录</td></tr>`
+            }
+          </tbody>
+        </table></div>
+      </div>
+    </div>`;
+  $("#fb-form").onsubmit = async (e) => {
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    try {
+      await api("/api/feedback", {
+        method: "POST",
+        json: {
+          kind: fd.get("kind"),
+          severity: fd.get("severity"),
+          title: fd.get("title"),
+          body: fd.get("body"),
+        },
+      });
+      location.hash = "#/feedback";
+      viewFeedback();
+    } catch (err) {
+      alert(err.message || "提交失败");
+    }
+  };
+  $("#fb-filter").onsubmit = (e) => {
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    const q = new URLSearchParams();
+    if (fd.get("kind")) q.set("kind", fd.get("kind"));
+    if (fd.get("status")) q.set("status", fd.get("status"));
+    location.hash = "#/feedback" + (q.toString() ? "?" + q.toString() : "");
+  };
+  $$("[data-fb-body]").forEach((b) => {
+    b.onclick = () => $("#fb-body-" + b.dataset.fbBody)?.classList.toggle("hidden");
+  });
+  $$("[data-fb-done]").forEach((b) => {
+    b.onclick = async () => {
+      await api("/api/feedback/" + b.dataset.fbDone, { method: "PATCH", json: { status: "done" } });
+      viewFeedback();
+    };
+  });
+}
+
+async function viewAuditLogs() {
+  if (me.role !== "admin") {
+    location.hash = "#/home";
+    return;
+  }
+  pageTitle("操作日志", "记录全员写操作，仅管理员可查看");
+  const params = parseHash().params;
+  const q = params.get("q") || "";
+  const role = params.get("role") || "";
+  const module = params.get("module") || "";
+  const success = params.get("success") || "";
+  const limit = 50;
+  const page = Math.max(1, Number(params.get("page") || 1) || 1);
+  const offset = (page - 1) * limit;
+  const qs = new URLSearchParams();
+  if (q) qs.set("q", q);
+  if (role) qs.set("role", role);
+  if (module) qs.set("module", module);
+  if (success) qs.set("success", success);
+  qs.set("limit", String(limit));
+  qs.set("offset", String(offset));
+  const data = await api("/api/audit-logs?" + qs.toString());
+  const rows = data.items || [];
+  const total = data.total || 0;
+  const modules = data.modules || [];
+  const pages = Math.max(1, Math.ceil(total / limit));
+  const setHash = (nextPage) => {
+    const next = new URLSearchParams();
+    if (q) next.set("q", q);
+    if (role) next.set("role", role);
+    if (module) next.set("module", module);
+    if (success) next.set("success", success);
+    if (nextPage > 1) next.set("page", String(nextPage));
+    location.hash = "#/audit-logs" + (next.toString() ? "?" + next.toString() : "");
+  };
+  $("#view").innerHTML = `
+    <div class="doc-page">
+      <div class="panel">
+        <div class="panel-head">
+          <div>
+            <h3>操作记录</h3>
+            <p class="muted">共 ${total} 条。登录、新增、修改、审核、删除等写操作均会入账，不含普通浏览。</p>
+          </div>
+          <form class="toolbar page-toolbar" id="audit-filter">
+            <input type="search" name="q" value="${esc(q)}" placeholder="姓名、动作、单号">
+            <select name="role">
+              <option value="">全部角色</option>
+              <option value="admin" ${role === "admin" ? "selected" : ""}>管理员</option>
+              <option value="sales" ${role === "sales" ? "selected" : ""}>销售</option>
+              <option value="purchase" ${role === "purchase" ? "selected" : ""}>采购</option>
+              <option value="finance" ${role === "finance" ? "selected" : ""}>财务</option>
+            </select>
+            <select name="module">
+              <option value="">全部模块</option>
+              ${modules.map((m) => `<option value="${esc(m)}" ${module === m ? "selected" : ""}>${esc(m)}</option>`).join("")}
+            </select>
+            <select name="success">
+              <option value="">全部结果</option>
+              <option value="1" ${success === "1" ? "selected" : ""}>成功</option>
+              <option value="0" ${success === "0" ? "selected" : ""}>失败</option>
+            </select>
+            <button class="ghost" type="submit">筛选</button>
+          </form>
+        </div>
+        <div class="table-wrap"><table>
+          <thead><tr><th>时间</th><th>操作人</th><th>角色</th><th>模块</th><th>动作</th><th>对象</th><th>说明</th><th>结果</th><th>IP</th></tr></thead>
+          <tbody>
+            ${
+              rows.length
+                ? rows
+                    .map(
+                      (r) => `<tr>
+              <td>${esc(fmtDocTime(r.created_at))}</td>
+              <td>${esc(r.user_name || r.username || "—")}${r.username && r.user_name ? `<div class="muted">${esc(r.username)}</div>` : ""}</td>
+              <td>${esc(r.role_label)}</td>
+              <td>${esc(r.module)}</td>
+              <td>${esc(r.action)}</td>
+              <td>${esc(r.target || "—")}</td>
+              <td class="audit-detail">${esc(r.detail || "—")}</td>
+              <td>${r.success ? pill("won", "成功") : pill("reject", "失败 " + (r.status_code || ""))}</td>
+              <td>${esc(r.ip || "—")}</td>
+            </tr>`
+                    )
+                    .join("")
+                : `<tr><td colspan="9" class="empty-hint muted">暂无操作记录</td></tr>`
+            }
+          </tbody>
+        </table></div>
+        ${
+          total > limit
+            ? `<div class="row-actions form-footer audit-pager">
+                <button type="button" class="ghost" ${page <= 1 ? "disabled" : ""} data-audit-page="${page - 1}">上一页</button>
+                <span class="muted">第 ${page} / ${pages} 页</span>
+                <button type="button" class="ghost" ${page >= pages ? "disabled" : ""} data-audit-page="${page + 1}">下一页</button>
+              </div>`
+            : ""
+        }
+      </div>
+    </div>`;
+  $("#audit-filter").onsubmit = (e) => {
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    const next = new URLSearchParams();
+    const nq = (fd.get("q") || "").toString().trim();
+    const nr = (fd.get("role") || "").toString();
+    const nm = (fd.get("module") || "").toString();
+    const ns = (fd.get("success") || "").toString();
+    if (nq) next.set("q", nq);
+    if (nr) next.set("role", nr);
+    if (nm) next.set("module", nm);
+    if (ns) next.set("success", ns);
+    location.hash = "#/audit-logs" + (next.toString() ? "?" + next.toString() : "");
+  };
+  $$("[data-audit-page]").forEach((b) => {
+    b.onclick = () => setHash(Number(b.dataset.auditPage));
+  });
+}
+
+async function viewMyAccount() {
+  pageTitle("账户管理", "只能修改自己的账户，不能查看或改动他人账号");
+  const u = me;
+  $("#view").innerHTML = `
+    <form id="acct-form" class="panel form-grid">
+      <label>用户名<input name="username" required minlength="2" maxlength="64" value="${esc(u.username || "")}"></label>
+      <label>姓名<input name="name" required maxlength="64" value="${esc(u.name || "")}"></label>
+      <label>角色<input value="${esc(u.role_label || u.role || "")}" readonly></label>
+      <label>新密码<input name="password" type="password" minlength="6" placeholder="不改请留空"></label>
+      <label>确认新密码<input name="password2" type="password" minlength="6" placeholder="再次输入新密码"></label>
+      <div class="full row-actions form-footer"><button type="submit">保存</button></div>
+    </form>`;
+  $("#acct-form").onsubmit = async (e) => {
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    const password = (fd.get("password") || "").toString();
+    const password2 = (fd.get("password2") || "").toString();
+    if (password || password2) {
+      if (password.length < 6) {
+        alert("新密码至少 6 位");
+        return;
+      }
+      if (password !== password2) {
+        alert("两次输入的新密码不一致");
+        return;
+      }
+    }
+    const payload = {
+      username: (fd.get("username") || "").toString().trim(),
+      name: (fd.get("name") || "").toString().trim(),
+    };
+    if (password) payload.password = password;
+    try {
+      const updated = await api("/api/users/" + u.id, { method: "PATCH", json: payload });
+      me = updated;
+      renderNav();
+      alert("已保存");
+      viewMyAccount();
+    } catch (err) {
+      alert(err.message || "保存失败");
+    }
+  };
+}
+
 async function viewUsers() {
-  pageTitle("用户管理");
+  if (me.role !== "admin") {
+    await viewMyAccount();
+    return;
+  }
+  pageTitle("账户管理", "可查看并管理全部账号");
   const rows = await api("/api/users");
   $("#view").innerHTML = `
     <form id="uf" class="panel form-grid">
@@ -3375,6 +3777,8 @@ async function route() {
     else if (path === "#/finance/payments/new") await viewVoucherForm("payment");
     else if (path.startsWith("#/finance/payments/")) await viewVoucherForm("payment", path.split("/")[3]);
     else if (path === "#/finance") await viewFinance();
+    else if (path === "#/feedback") await viewFeedback();
+    else if (path === "#/audit-logs") await viewAuditLogs();
     else if (path === "#/users") await viewUsers();
     else await viewHome();
   } catch (err) {
