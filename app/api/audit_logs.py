@@ -13,7 +13,7 @@ from app.db.models import OperationLog, User
 
 router = APIRouter(prefix="/api/audit-logs", tags=["audit-logs"])
 
-MODULES = ("账户", "产品库", "询价单", "销售订单", "采购订单", "财务管理", "问题反馈", "系统")
+MODULES = ("账户", "产品库", "客户", "工厂管理", "询价单", "销售订单", "采购订单", "财务管理", "问题反馈", "系统")
 
 
 def serialize(row: OperationLog) -> dict:

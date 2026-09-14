@@ -453,6 +453,47 @@ class FinanceAllocLine(Base):
     purchase_order: Mapped[Optional["PurchaseOrder"]] = relationship()
 
 
+class Customer(Base):
+    __tablename__ = "customers"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    no: Mapped[str] = mapped_column(String(32), unique=True, index=True)
+    customer_name: Mapped[str] = mapped_column(EncryptedName())
+    country: Mapped[str] = mapped_column(String(64), default="")
+    contact_name: Mapped[str] = mapped_column(String(64), default="")
+    phone: Mapped[str] = mapped_column(String(64), default="")
+    email: Mapped[str] = mapped_column(String(128), default="")
+    currency: Mapped[str] = mapped_column(String(8), default="RMB")
+    address: Mapped[str] = mapped_column(String(200), default="")
+    remark: Mapped[str] = mapped_column(Text, default="")
+    status: Mapped[str] = mapped_column(String(20), default="active", index=True)
+    creator_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
+
+    creator: Mapped["User"] = relationship(foreign_keys=[creator_id])
+
+
+class Factory(Base):
+    __tablename__ = "factories"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    no: Mapped[str] = mapped_column(String(32), unique=True, index=True)
+    factory_name: Mapped[str] = mapped_column(EncryptedName())
+    factory_contact: Mapped[str] = mapped_column(String(64), default="")
+    factory_phone: Mapped[str] = mapped_column(String(64), default="")
+    factory_address: Mapped[str] = mapped_column(String(200), default="")
+    factory_bank: Mapped[str] = mapped_column(EncryptedName(), default="")
+    factory_account: Mapped[str] = mapped_column(EncryptedName(), default="")
+    remark: Mapped[str] = mapped_column(Text, default="")
+    status: Mapped[str] = mapped_column(String(20), default="active", index=True)
+    creator_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
+
+    creator: Mapped["User"] = relationship(foreign_keys=[creator_id])
+
+
 class Feedback(Base):
     __tablename__ = "feedbacks"
 

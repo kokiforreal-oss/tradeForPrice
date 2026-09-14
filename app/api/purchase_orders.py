@@ -13,7 +13,7 @@ from app.core.auth import ROLE_LABEL, get_current_user, require_roles
 from app.db.database import get_db
 from app.db.models import FinanceAllocLine, FinanceInvoice, FinancePayment, FinanceVoucher, FinanceWriteoff, Inquiry, InquiryLine, Order, OrderLog, Product, PurchaseOrder, PurchaseOrderLine, PurchaseOrderLog, Quote, User
 from app.core.e2e import MoneyIn, money, to_api_money
-from app.core.utils import apply_doc_date_range, apply_person_name, fmt_dt, line_spec, next_no, to_float
+from app.core.utils import apply_doc_date_range, apply_person_name, fmt_dt, goods_brief, line_spec, next_no, to_float
 
 router = APIRouter(prefix="/api/purchase-orders", tags=["purchase-orders"])
 
@@ -524,6 +524,7 @@ def list_pos(
         joinedload(PurchaseOrder.creator),
         joinedload(PurchaseOrder.purchaser),
         joinedload(PurchaseOrder.sales_order).joinedload(Order.inquiry),
+        joinedload(PurchaseOrder.lines),
     )
     q = filter_purchase_orders(q, user)
     if user.role == "sales" and not status:
@@ -535,29 +536,34 @@ def list_pos(
     q = apply_doc_date_range(q, PurchaseOrder, date_from, date_to)
     q = apply_person_name(q, PurchaseOrder.purchaser_id, PurchaseOrder.creator_id, name=person)
     rows = q.order_by(PurchaseOrder.id.desc()).all()
-    return [
-        {
-            "id": r.id,
-            "no": r.no,
-            "supplier_name": r.supplier_name,
-            "sales_order_id": r.sales_order_id,
-            "sales_order_no": r.sales_order.no if r.sales_order else "",
-            "customer_name": r.sales_order.inquiry.customer_name if r.sales_order and r.sales_order.inquiry else "",
-            "currency": r.currency,
-            "total": to_float(r.total),
-            "status": r.status,
-            "status_label": PO_STATUS.get(r.status, r.status),
-            "purchaser_name": r.purchaser.name if getattr(r, "purchaser", None) else "",
-            "creator_name": r.creator.name if r.creator else "",
-            "doc_date": r.doc_date.isoformat() if getattr(r, "doc_date", None) else "",
-            "created_at": fmt_dt(r.created_at),
-            "can_delete": user.role == "admin",
-            "can_withdraw": bool(
-                user.role == "purchase" and is_purchase_owner(user, r) and r.status == "pending_audit"
-            ),
-        }
-        for r in rows
-    ]
+    out = []
+    for r in rows:
+        goods = goods_brief([(ln.product_name, ln.quantity) for ln in (r.lines or [])])
+        out.append(
+            {
+                "id": r.id,
+                "no": r.no,
+                "supplier_name": r.supplier_name,
+                "sales_order_id": r.sales_order_id,
+                "sales_order_no": r.sales_order.no if r.sales_order else "",
+                "customer_name": r.sales_order.inquiry.customer_name if r.sales_order and r.sales_order.inquiry else "",
+                "currency": r.currency,
+                "total": to_float(r.total),
+                "status": r.status,
+                "status_label": PO_STATUS.get(r.status, r.status),
+                "purchaser_name": r.purchaser.name if getattr(r, "purchaser", None) else "",
+                "creator_name": r.creator.name if r.creator else "",
+                "doc_date": r.doc_date.isoformat() if getattr(r, "doc_date", None) else "",
+                "created_at": fmt_dt(r.created_at),
+                "can_delete": user.role == "admin",
+                "can_withdraw": bool(
+                    user.role == "purchase" and is_purchase_owner(user, r) and r.status == "pending_audit"
+                ),
+                "goods": goods["goods"],
+                "goods_full": goods["goods_full"],
+            }
+        )
+    return out
 
 
 @router.get("/meta")

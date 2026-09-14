@@ -15,7 +15,7 @@ from app.db.database import get_db
 from app.db.models import Inquiry, InquiryLine, Order, OrderLine, OrderLog, Product, Quote, User
 from app.api.purchase_orders import ensure_po_from_sales_order
 from app.core.e2e import MoneyIn, money, to_api_money
-from app.core.utils import apply_doc_date_range, apply_person_name, fmt_dt, line_spec, next_contract_no, next_no, to_float
+from app.core.utils import apply_doc_date_range, apply_person_name, fmt_dt, goods_brief, line_spec, next_contract_no, next_no, to_float
 
 router = APIRouter(prefix="/api/orders", tags=["orders"])
 
@@ -255,8 +255,10 @@ def list_orders(
 ):
     q = db.query(Order).options(
         joinedload(Order.inquiry).joinedload(Inquiry.creator),
+        joinedload(Order.inquiry).joinedload(Inquiry.lines).joinedload(InquiryLine.product),
         joinedload(Order.salesperson),
         joinedload(Order.creator),
+        joinedload(Order.lines),
     )
     q = filter_orders(q, user)
     if user.role == "sales" and not status:
@@ -266,27 +268,45 @@ def list_orders(
     q = apply_doc_date_range(q, Order, date_from, date_to)
     q = apply_person_name(q, Order.salesperson_id, Order.creator_id, name=person)
     rows = q.order_by(Order.id.desc()).all()
-    return [
-        {
-            "id": r.id,
-            "no": r.no,
-            "inquiry_no": r.inquiry.no if r.inquiry else "",
-            "customer_name": (r.customer_name or "") or (r.inquiry.customer_name if r.inquiry else ""),
-            "currency": (r.currency or "") or (r.inquiry.currency if r.inquiry else ""),
-            "total": to_float(getattr(r, "total", 0)) or 0,
-            "doc_date": r.doc_date.isoformat() if getattr(r, "doc_date", None) else "",
-            "status": r.status,
-            "status_label": STEP_LABEL.get(r.status, r.status),
-            "sales_name": (r.salesperson.name if getattr(r, "salesperson", None) else "")
-            or (r.inquiry.creator.name if r.inquiry and r.inquiry.creator else "")
-            or (r.creator.name if r.creator else ""),
-            "created_at": fmt_dt(r.created_at),
-            "can_withdraw": bool(
-                user.role == "sales" and is_sales_owner(user, r) and r.status == "pending_audit"
-            ),
-        }
-        for r in rows
-    ]
+    out = []
+    for r in rows:
+        if r.lines:
+            goods = goods_brief([(ln.product_name, ln.quantity) for ln in r.lines])
+        elif r.inquiry and r.inquiry.lines:
+            goods = goods_brief(
+                [
+                    (
+                        ((ln.product.name if ln.product else "") or ln.product_name or ""),
+                        ln.quantity,
+                    )
+                    for ln in r.inquiry.lines
+                ]
+            )
+        else:
+            goods = goods_brief([])
+        out.append(
+            {
+                "id": r.id,
+                "no": r.no,
+                "inquiry_no": r.inquiry.no if r.inquiry else "",
+                "customer_name": (r.customer_name or "") or (r.inquiry.customer_name if r.inquiry else ""),
+                "currency": (r.currency or "") or (r.inquiry.currency if r.inquiry else ""),
+                "total": to_float(getattr(r, "total", 0)) or 0,
+                "doc_date": r.doc_date.isoformat() if getattr(r, "doc_date", None) else "",
+                "status": r.status,
+                "status_label": STEP_LABEL.get(r.status, r.status),
+                "sales_name": (r.salesperson.name if getattr(r, "salesperson", None) else "")
+                or (r.inquiry.creator.name if r.inquiry and r.inquiry.creator else "")
+                or (r.creator.name if r.creator else ""),
+                "created_at": fmt_dt(r.created_at),
+                "can_withdraw": bool(
+                    user.role == "sales" and is_sales_owner(user, r) and r.status == "pending_audit"
+                ),
+                "goods": goods["goods"],
+                "goods_full": goods["goods_full"],
+            }
+        )
+    return out
 
 
 @router.get("/meta")

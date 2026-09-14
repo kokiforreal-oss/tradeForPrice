@@ -124,3 +124,38 @@ def line_spec(*parts: Optional[str]) -> str:
         if s:
             return s
     return ""
+
+
+def _qty_text(qty) -> str:
+    if qty is None or qty == "":
+        return ""
+    try:
+        n = Decimal(str(qty))
+    except (TypeError, ValueError):
+        return ""
+    if n == 0:
+        return ""
+    if n == n.to_integral_value():
+        return str(int(n))
+    text = format(n.normalize(), "f")
+    return text.rstrip("0").rstrip(".") if "." in text else text
+
+
+def goods_brief(items, preview: int = 2) -> dict:
+    """行项目 (名称, 数量) → 列表短文案与完整悬停文案。"""
+    names: list[str] = []
+    parts: list[str] = []
+    for name, qty in items or []:
+        label = str(name or "").strip()
+        if not label:
+            continue
+        names.append(label)
+        q = _qty_text(qty)
+        parts.append(f"{label} ×{q}" if q else label)
+    if not parts:
+        return {"goods": "", "goods_full": ""}
+    full = "；".join(parts)
+    if len(parts) <= preview:
+        return {"goods": "、".join(parts), "goods_full": full}
+    short = "、".join(names[:preview]) + f" 等{len(parts)}项"
+    return {"goods": short, "goods_full": full}

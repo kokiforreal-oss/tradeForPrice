@@ -218,8 +218,38 @@ function canEditFinance() {
   return ["admin", "finance"].includes(me.role);
 }
 
+function canViewCustomers() {
+  return ["admin", "sales", "purchase", "finance"].includes(me.role);
+}
+
+function canEditCustomers() {
+  return canViewCustomers();
+}
+
+function canViewFactories() {
+  return ["admin", "sales", "purchase", "finance"].includes(me.role);
+}
+
+function canEditFactories() {
+  return canViewFactories();
+}
+
 function navItems() {
   const all = [{ group: "工作" }, { href: "#/home", label: "工作台", ico: "⌂" }];
+  if (canViewCustomers()) {
+    all.push({
+      href: "#/customers",
+      label: "客户管理",
+      ico: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="8" r="3"/><path d="M3.5 19c.7-2.8 2.9-4.5 5.5-4.5s4.8 1.7 5.5 4.5"/><circle cx="17" cy="9" r="2.4"/><path d="M21.2 18.5c-.5-2.1-2.2-3.4-4.2-3.4-.5 0-1 .1-1.4.2"/></svg>`,
+    });
+  }
+  if (canViewFactories()) {
+    all.push({
+      href: "#/factories",
+      label: "工厂管理",
+      ico: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 20V9l6 3V9l6 3V6l6 3v11H3z"/><path d="M7 20v-3M12 20v-3M17 20v-3"/></svg>`,
+    });
+  }
   const biz = [];
   biz.push({ href: "#/products", label: "产品库", ico: "▤" });
   if (["admin", "sales", "purchase", "finance"].includes(me.role)) {
@@ -345,6 +375,12 @@ function lineSpec(ln = {}) {
 function pill(status, label) {
   const cls = status === "closed" || status === "done" ? "won" : status;
   return `<span class="pill ${cls}">${esc(label)}</span>`;
+}
+
+function goodsCell(r) {
+  const text = (r.goods || "").trim() || "—";
+  const full = (r.goods_full || r.goods || "").trim();
+  return `<td class="goods-cell" title="${esc(full)}">${esc(text)}</td>`;
 }
 
 async function ensureMe() {
@@ -1013,7 +1049,7 @@ async function viewInquiries() {
       ${canCreate ? `<a class="btn" href="#/inquiries/new">新建询价单</a>` : ""}
     </form>
     <div class="table-wrap"><table>
-      <thead><tr><th>创建时间</th><th>单号</th><th>客户</th><th>币种</th><th>状态</th><th>销售</th><th>操作</th></tr></thead>
+      <thead><tr><th>创建时间</th><th>单号</th><th>客户</th><th>商品</th><th>币种</th><th>状态</th><th>销售</th><th>操作</th></tr></thead>
       <tbody>
         ${
           rows.length
@@ -1022,7 +1058,9 @@ async function viewInquiries() {
                   (r) => `<tr>
             <td>${esc(fmtDocTime(r.created_at))}</td>
             <td><a href="#/inquiries/${r.id}">${esc(r.no)}</a></td>
-            <td>${esc(r.customer_name)}</td><td>${esc(r.currency)}</td>
+            <td>${esc(r.customer_name)}</td>
+            ${goodsCell(r)}
+            <td>${esc(r.currency)}</td>
             <td>${pill(r.status, r.status_label)}</td>
             <td>${esc(r.creator_name)}</td>
             <td class="row-actions">
@@ -1032,7 +1070,7 @@ async function viewInquiries() {
           </tr>`
                 )
                 .join("")
-            : `<tr><td colspan="7" class="empty-hint muted">暂无询价单</td></tr>`
+            : `<tr><td colspan="8" class="empty-hint muted">暂无询价单</td></tr>`
         }
       </tbody>
     </table></div>
@@ -1539,7 +1577,7 @@ async function viewOrders() {
       ${me.role === "sales" ? `<a class="btn" href="#/orders/new">新建销售订单</a>` : ""}
     </form>
     <div class="table-wrap"><table>
-      <thead><tr><th>创建时间</th><th>销售单号</th><th>客户</th><th>金额</th><th>当前状态</th><th>业务员</th><th>操作</th></tr></thead>
+      <thead><tr><th>创建时间</th><th>销售单号</th><th>客户</th><th>商品</th><th>金额</th><th>当前状态</th><th>业务员</th><th>操作</th></tr></thead>
       <tbody>
         ${
           rows.length
@@ -1556,6 +1594,7 @@ async function viewOrders() {
             <td>${esc(fmtDocTime(r.created_at))}</td>
             <td><a href="#/orders/${r.id}">${esc(r.no)}</a></td>
             <td>${esc(r.customer_name)}</td>
+            ${goodsCell(r)}
             <td>${fmtMoney(r.total)} ${esc(r.currency)}</td>
             <td>${pill(r.status, r.status_label)}</td>
             <td>${esc(r.sales_name)}</td>
@@ -1563,7 +1602,7 @@ async function viewOrders() {
           </tr>`;
                 })
                 .join("")
-            : `<tr><td colspan="7" class="empty-hint muted">暂无销售订单</td></tr>`
+            : `<tr><td colspan="8" class="empty-hint muted">暂无销售订单</td></tr>`
         }
       </tbody>
     </table></div>
@@ -2336,7 +2375,7 @@ async function viewPurchaseOrders() {
       ${me.role === "purchase" ? `<a class="btn" href="#/purchase-orders/new">新建采购单</a>` : ""}
     </form>
     <div class="table-wrap"><table>
-      <thead><tr><th>创建时间</th><th>采购单号</th><th>供应商</th><th>业务员</th><th>销售订单</th><th>金额</th><th>状态</th><th>操作</th></tr></thead>
+      <thead><tr><th>创建时间</th><th>采购单号</th><th>供应商</th><th>商品</th><th>业务员</th><th>销售订单</th><th>金额</th><th>状态</th><th>操作</th></tr></thead>
       <tbody>
         ${
           rows.length
@@ -2344,6 +2383,7 @@ async function viewPurchaseOrders() {
                 <td>${esc(fmtDocTime(r.created_at))}</td>
                 <td><a href="#/purchase-orders/${r.id}">${esc(r.no)}</a></td>
                 <td>${esc(r.supplier_name) || "—"}</td>
+                ${goodsCell(r)}
                 <td>${esc(r.purchaser_name || r.creator_name)}</td>
                 <td>${
                   r.sales_order_id
@@ -2358,7 +2398,7 @@ async function viewPurchaseOrders() {
                   r.can_delete ? ` <button class="danger" data-del-po="${r.id}">删除</button>` : ""
                 }</td>
               </tr>`).join("")
-            : `<tr><td colspan="8" class="empty-hint muted">暂无采购单</td></tr>`
+            : `<tr><td colspan="9" class="empty-hint muted">暂无采购单</td></tr>`
         }
       </tbody>
     </table></div>
@@ -3405,6 +3445,204 @@ function bindVoucherForm(direction, meta, existing, readonly) {
   if (form.link_doc_id?.value) applyLinkDoc();
 }
 
+async function viewMasterDirectory(kind) {
+  const isCustomer = kind === "customers";
+  const canView = isCustomer ? canViewCustomers() : canViewFactories();
+  const canEdit = isCustomer ? canEditCustomers() : canEditFactories();
+  if (!canView) {
+    location.hash = "#/home";
+    return;
+  }
+  const hash = isCustomer ? "#/customers" : "#/factories";
+  const apiBase = isCustomer ? "/api/customers" : "/api/factories";
+  pageTitle(
+    isCustomer ? "客户管理" : "工厂管理",
+    isCustomer
+      ? "维护海外客户档案，后续询价可直接选用（本版先独立维护）"
+      : "维护采购工厂及收款账户，后续报价可直接选用（本版先独立维护）"
+  );
+  const params = parseHash().params;
+  const q = params.get("q") || "";
+  const status = params.get("status") || "";
+  const qs = new URLSearchParams();
+  if (q) qs.set("q", q);
+  if (status) qs.set("status", status);
+  const rows = await api(apiBase + (qs.toString() ? "?" + qs.toString() : ""));
+  const editingId = params.get("id") || "";
+  const editing = rows.find((r) => String(r.id) === String(editingId)) || null;
+  const formTitle = editing ? (isCustomer ? "编辑客户" : "编辑工厂") : isCustomer ? "新建客户" : "新建工厂";
+  const customerFields = `
+          <label>客户名称<input name="customer_name" required maxlength="200" placeholder="公司或客户全称" value="${esc(editing?.customer_name || "")}"></label>
+          <label>国家/地区<input name="country" maxlength="64" placeholder="如 Germany" value="${esc(editing?.country || "")}"></label>
+          <label>联系人<input name="contact_name" maxlength="64" value="${esc(editing?.contact_name || "")}"></label>
+          <label>电话<input name="phone" maxlength="64" value="${esc(editing?.phone || "")}"></label>
+          <label>邮箱<input name="email" maxlength="128" value="${esc(editing?.email || "")}"></label>
+          <label>默认币种<select name="currency">
+            ${["RMB", "USD", "EUR"].map((c) => `<option ${(editing?.currency || "RMB") === c ? "selected" : ""}>${c}</option>`).join("")}
+          </select></label>
+          <label class="full">地址<input name="address" maxlength="200" value="${esc(editing?.address || "")}"></label>
+          <label class="full">备注<textarea name="remark" rows="2">${esc(editing?.remark || "")}</textarea></label>
+          <label>状态<select name="status">
+            <option value="active" ${(editing?.status || "active") === "active" ? "selected" : ""}>启用</option>
+            <option value="disabled" ${editing?.status === "disabled" ? "selected" : ""}>停用</option>
+          </select></label>`;
+  const factoryFields = `
+          <label>工厂名称<input name="factory_name" required maxlength="200" placeholder="工厂或供应商全称" value="${esc(editing?.factory_name || "")}"></label>
+          <label>联系人<input name="factory_contact" maxlength="64" value="${esc(editing?.factory_contact || "")}"></label>
+          <label>电话<input name="factory_phone" maxlength="64" value="${esc(editing?.factory_phone || "")}"></label>
+          <label class="full">地址<input name="factory_address" maxlength="200" value="${esc(editing?.factory_address || "")}"></label>
+          <label>开户行<input name="factory_bank" maxlength="200" value="${esc(editing?.factory_bank || "")}"></label>
+          <label>账号<input name="factory_account" maxlength="200" value="${esc(editing?.factory_account || "")}"></label>
+          <label class="full">备注<textarea name="remark" rows="2">${esc(editing?.remark || "")}</textarea></label>
+          <label>状态<select name="status">
+            <option value="active" ${(editing?.status || "active") === "active" ? "selected" : ""}>启用</option>
+            <option value="disabled" ${editing?.status === "disabled" ? "selected" : ""}>停用</option>
+          </select></label>`;
+  const tableHead = isCustomer
+    ? `<tr><th>编号</th><th>客户</th><th>国家</th><th>联系人</th><th>电话</th><th>币种</th><th>状态</th><th></th></tr>`
+    : `<tr><th>编号</th><th>工厂</th><th>联系人</th><th>电话</th><th>开户行</th><th>状态</th><th></th></tr>`;
+  const tableRows = rows.length
+    ? rows
+        .map((r) => {
+          const actions = [];
+          if (canEdit) actions.push(`<button type="button" class="ghost" data-edit="${r.id}">编辑</button>`);
+          if (canEdit) {
+            actions.push(
+              `<button type="button" class="ghost" data-toggle="${r.id}" data-status="${r.status}">${r.status === "active" ? "停用" : "启用"}</button>`
+            );
+          }
+          if (r.can_delete) actions.push(`<button type="button" class="ghost" data-del="${r.id}">删除</button>`);
+          if (isCustomer) {
+            return `<tr>
+              <td>${esc(r.no)}</td>
+              <td>${esc(r.customer_name)}</td>
+              <td>${esc(r.country)}</td>
+              <td>${esc(r.contact_name)}</td>
+              <td>${esc(r.phone)}</td>
+              <td>${esc(r.currency)}</td>
+              <td>${pill(r.status === "active" ? "won" : "reject", r.status_label)}</td>
+              <td class="row-actions">${actions.join("")}</td>
+            </tr>`;
+          }
+          return `<tr>
+              <td>${esc(r.no)}</td>
+              <td>${esc(r.factory_name)}</td>
+              <td>${esc(r.factory_contact)}</td>
+              <td>${esc(r.factory_phone)}</td>
+              <td>${esc(r.factory_bank)}</td>
+              <td>${pill(r.status === "active" ? "won" : "reject", r.status_label)}</td>
+              <td class="row-actions">${actions.join("")}</td>
+            </tr>`;
+        })
+        .join("")
+    : `<tr><td colspan="${isCustomer ? 8 : 7}" class="empty-hint muted">暂无档案，可先在上方新建</td></tr>`;
+  $("#view").innerHTML = `
+    <div class="doc-page">
+      ${
+        canEdit
+          ? `<form id="master-form" class="panel">
+        <h3 class="sec-title">${formTitle}</h3>
+        <p class="muted section-lead">${
+          isCustomer
+            ? "名称按系统规则加密存储，全员可维护客户档案。"
+            : "工厂名称与银行账户加密存储，与报价单字段一致，全员可维护工厂档案。"
+        }</p>
+        <div class="form-grid inq-form">
+          ${isCustomer ? customerFields : factoryFields}
+        </div>
+        <div class="row-actions form-footer">
+          <button type="submit">${editing ? "保存" : "新建"}</button>
+          ${editing ? `<button type="button" class="ghost" id="master-cancel">取消编辑</button>` : ""}
+        </div>
+      </form>`
+          : `<div class="panel"><p class="muted" style="margin:0">当前角色仅可查看档案，不能新增或修改。</p></div>`
+      }
+      <div class="panel">
+        <div class="panel-head">
+          <h3>${isCustomer ? "客户列表" : "工厂列表"}</h3>
+          <form class="toolbar page-toolbar" id="master-filter">
+            <input type="search" name="q" value="${esc(q)}" placeholder="${isCustomer ? "编号、客户、联系人、电话" : "编号、工厂、联系人、电话"}">
+            <select name="status">
+              <option value="">全部状态</option>
+              <option value="active" ${status === "active" ? "selected" : ""}>启用</option>
+              <option value="disabled" ${status === "disabled" ? "selected" : ""}>停用</option>
+            </select>
+            <button class="ghost" type="submit">筛选</button>
+          </form>
+        </div>
+        <div class="table-wrap"><table>
+          <thead>${tableHead}</thead>
+          <tbody>${tableRows}</tbody>
+        </table></div>
+      </div>
+    </div>`;
+  const filter = $("#master-filter");
+  if (filter) {
+    filter.onsubmit = (e) => {
+      e.preventDefault();
+      const fd = new FormData(e.target);
+      const next = new URLSearchParams();
+      if (fd.get("q")) next.set("q", fd.get("q"));
+      if (fd.get("status")) next.set("status", fd.get("status"));
+      location.hash = hash + (next.toString() ? "?" + next.toString() : "");
+    };
+  }
+  const form = $("#master-form");
+  if (form) {
+    form.onsubmit = async (e) => {
+      e.preventDefault();
+      const fd = new FormData(e.target);
+      const json = Object.fromEntries(fd.entries());
+      try {
+        if (editing) {
+          await api(apiBase + "/" + editing.id, { method: "PATCH", json });
+        } else {
+          await api(apiBase, { method: "POST", json });
+        }
+        location.hash = hash;
+        await viewMasterDirectory(kind);
+      } catch (err) {
+        alert(err.message || "保存失败");
+      }
+    };
+  }
+  $("#master-cancel") && ($("#master-cancel").onclick = () => {
+    location.hash = hash;
+  });
+  $$("[data-edit]").forEach((b) => {
+    b.onclick = () => {
+      const next = new URLSearchParams();
+      if (q) next.set("q", q);
+      if (status) next.set("status", status);
+      next.set("id", b.dataset.edit);
+      location.hash = hash + "?" + next.toString();
+    };
+  });
+  $$("[data-toggle]").forEach((b) => {
+    b.onclick = async () => {
+      const nextStatus = b.dataset.status === "active" ? "disabled" : "active";
+      await api(apiBase + "/" + b.dataset.toggle, { method: "PATCH", json: { status: nextStatus } });
+      await viewMasterDirectory(kind);
+    };
+  });
+  $$("[data-del]").forEach((b) => {
+    b.onclick = async () => {
+      if (!confirm("确定删除该档案？此操作不可恢复。")) return;
+      await api(apiBase + "/" + b.dataset.del, { method: "DELETE" });
+      location.hash = hash;
+      await viewMasterDirectory(kind);
+    };
+  });
+}
+
+async function viewCustomers() {
+  await viewMasterDirectory("customers");
+}
+
+async function viewFactories() {
+  await viewMasterDirectory("factories");
+}
+
 async function viewFeedback() {
   pageTitle("问题反馈", "提交缺陷或建议，记录后由管理员处理");
   const status = parseHash().params.get("status") || "";
@@ -3758,6 +3996,8 @@ async function route() {
   try {
     if (path === "#/home") await viewHome();
     else if (path === "#/products") await viewProducts();
+    else if (path === "#/customers") await viewCustomers();
+    else if (path === "#/factories") await viewFactories();
     else if (path === "#/inquiries") await viewInquiries();
     else if (path === "#/inquiries/new") await viewInquiryNew();
     else if (path.startsWith("#/inquiries/")) await viewInquiryDetail(path.split("/")[2]);

@@ -63,6 +63,12 @@ _RULES: list[tuple[str, re.Pattern[str], str, str]] = [
     ("POST", re.compile(r"^/api/finance/payments$"), "登记付款", "财务管理"),
     ("POST", re.compile(r"^/api/finance/invoices$"), "登记发票", "财务管理"),
     ("POST", re.compile(r"^/api/finance/writeoffs$"), "核销", "财务管理"),
+    ("POST", re.compile(r"^/api/customers$"), "新增客户", "客户"),
+    ("PATCH", re.compile(r"^/api/customers/\d+$"), "修改客户", "客户"),
+    ("DELETE", re.compile(r"^/api/customers/\d+$"), "删除客户", "客户"),
+    ("POST", re.compile(r"^/api/factories$"), "新增工厂", "工厂管理"),
+    ("PATCH", re.compile(r"^/api/factories/\d+$"), "修改工厂", "工厂管理"),
+    ("DELETE", re.compile(r"^/api/factories/\d+$"), "删除工厂", "工厂管理"),
     ("POST", re.compile(r"^/api/feedback$"), "提交问题反馈", "问题反馈"),
     ("PATCH", re.compile(r"^/api/feedback/\d+$"), "处理问题反馈", "问题反馈"),
 ]

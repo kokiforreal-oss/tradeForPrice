@@ -14,7 +14,7 @@ from app.core.auth import get_current_user, require_roles
 from app.db.database import get_db
 from app.db.models import Inquiry, InquiryLine, Order, OrderLog, Product, Quote, QuoteLine, User, utcnow
 from app.core.e2e import MoneyIn, money
-from app.core.utils import apply_created_at_range, apply_person_name, fmt_dt, next_no, to_float
+from app.core.utils import apply_created_at_range, apply_person_name, fmt_dt, goods_brief, next_no, to_float
 
 router = APIRouter(prefix="/api/inquiries", tags=["inquiries"])
 
@@ -326,6 +326,7 @@ def list_inquiries(
         joinedload(Inquiry.creator),
         joinedload(Inquiry.order),
         joinedload(Inquiry.quotes),
+        joinedload(Inquiry.lines).joinedload(InquiryLine.product),
     )
     q = filter_inquiries(q, user)
     if status in ("done", "won", "closed"):
@@ -335,23 +336,36 @@ def list_inquiries(
     q = apply_created_at_range(q, Inquiry.created_at, date_from, date_to)
     q = apply_person_name(q, Inquiry.creator_id, name=person)
     rows = q.order_by(Inquiry.id.desc()).all()
-    return [
-        {
-            "id": r.id,
-            "no": r.no,
-            "customer_name": r.customer_name,
-            "currency": r.currency,
-            "status": r.status,
-            "status_label": inquiry_status_label(r),
-            "creator_name": r.creator.name if r.creator else "",
-            "quote_count": len(r.quotes) if r.quotes else 0,
-            "order_no": r.order.no if r.order else None,
-            "order_id": r.order.id if r.order else None,
-            "can_delete": inquiry_can_delete(r, user),
-            "created_at": fmt_dt(r.created_at),
-        }
-        for r in rows
-    ]
+    out = []
+    for r in rows:
+        goods = goods_brief(
+            [
+                (
+                    ((ln.product.name if ln.product else "") or ln.product_name or ""),
+                    ln.quantity,
+                )
+                for ln in (r.lines or [])
+            ]
+        )
+        out.append(
+            {
+                "id": r.id,
+                "no": r.no,
+                "customer_name": r.customer_name,
+                "currency": r.currency,
+                "status": r.status,
+                "status_label": inquiry_status_label(r),
+                "creator_name": r.creator.name if r.creator else "",
+                "quote_count": len(r.quotes) if r.quotes else 0,
+                "order_no": r.order.no if r.order else None,
+                "order_id": r.order.id if r.order else None,
+                "can_delete": inquiry_can_delete(r, user),
+                "created_at": fmt_dt(r.created_at),
+                "goods": goods["goods"],
+                "goods_full": goods["goods_full"],
+            }
+        )
+    return out
 
 
 @router.post("")
